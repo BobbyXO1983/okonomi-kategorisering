@@ -11,7 +11,11 @@ const sb=window.supabase.createClient(SUPA_URL,SUPA_KEY);
 let user=null;
 let ownAccts=new Set();
 let overrides={};
+let goals={};        // {kategori: månedlig grense i kr}
 let PENDING=[];      // parsed-but-not-saved transactions from uploads
+async function saveGoals(){ if(!user)return; await sb.from('category_goals').delete().eq('user_id',user.id);
+ const rows=Object.entries(goals).map(([category,monthly_limit])=>({user_id:user.id,category,monthly_limit}));
+ if(rows.length)await sb.from('category_goals').upsert(rows,{onConflict:'user_id,category'}); }
 let isPremium=false;
 const PRICE_NOK=59;
 /* ---- annonselenker (affiliate). Bytt url til dine egne fra Adservice/Adtraction/Partner-ads. ----
@@ -286,6 +290,7 @@ async function loadData(){
  const oa=await sb.from('own_accounts').select('acct');ownAccts=new Set((oa.data||[]).map(r=>r.acct));
  // overrides
  const ov=await sb.from('category_overrides').select('group_key,category');overrides={};(ov.data||[]).forEach(r=>overrides[r.group_key]=r.category);
+ const gl=await sb.from('category_goals').select('category,monthly_limit');goals={};(gl.data||[]).forEach(r=>goals[r.category]=Number(r.monthly_limit));
  // transactions (paged)
  TX=[];let from=0;const page=1000;
  while(true){const {data,error}=await sb.from('transactions').select('tx_date,account,description,amount,counterpart,mcat,fingerprint').order('tx_date').range(from,from+page-1);
@@ -403,6 +408,15 @@ function renderKonto(){
 }
 /* ---- spareråd (regelbasert innsikt) ---- */
 function renderTips(){
+ const area=document.getElementById('tipsArea');
+ if(!isPremium){
+  area.innerHTML=`<div class="card" style="text-align:center;padding:22px">
+    <div style="font-weight:700;font-size:17px;margin-bottom:6px">Spareråd er en Premium-funksjon</div>
+    <div class="sub" style="max-width:470px;margin:0 auto 14px">Få personlige forslag basert på tallene dine – hvor du kan kutte, hvor mye du kan spare, og sett månedlige sparemål per kategori med fremdrift.</div>
+    <button class="btn" id="tipsUp">Oppgrader for å låse opp</button></div>`;
+  document.getElementById('tipsUp').onclick=showUpsell;
+  return;
+ }
  const exp=base().filter(t=>t.type==='Utgift');
  const inc=base().filter(t=>t.type==='Inntekt');
  const nM=Math.max(1,new Set(exp.map(t=>t.month)).size);
@@ -438,7 +452,30 @@ function renderTips(){
    <div class="sub">Anslått mulig innsparing</div>
    <div style="font-size:26px;font-weight:800;color:#7ee2a8;margin:2px 0">${perM(potential)}</div>
    <div class="sub">hvis du følger forslagene under. Kun et estimat basert på tallene dine.</div></div>`:'';
- document.getElementById('tipsArea').innerHTML=head+(tips.length?tips.map(x=>`<div class="card"><div style="font-weight:600;margin-bottom:4px">${esc(x.t)}</div><div style="font-size:13.5px;color:#dbe4ee;line-height:1.5">${x.b}</div></div>`).join(''):'<div class="card"><div class="sub">Last opp litt mer data, så kommer forslagene her.</div></div>');
+ const pm=v=>v/nM;
+ const topCats=Object.entries(byCat).sort((a,b)=>b[1]-a[1]).slice(0,8);
+ const goalRows=topCats.map(([c,v])=>{
+   const actual=pm(v);
+   if(goals[c]!=null){
+     const lim=goals[c];const pct=Math.min(100,Math.round(actual/Math.max(1,lim)*100));const over=actual>lim;
+     return `<div class="card" style="margin:0 0 8px">
+       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <div style="font-weight:600">${esc(c)}</div>
+        <div class="sub"><b style="color:${over?'#ff8a80':'#7ee2a8'}">${NOK(actual)}/mnd</b> av mål ${NOK(lim)}/mnd <b data-goal-del="${esc(c)}" title="Fjern mål" style="margin-left:8px;cursor:pointer;color:#ff8a80">✕</b></div>
+       </div>
+       <div style="height:8px;background:#0f1620;border-radius:6px;margin-top:8px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${over?'#ff8a80':'#7ee2a8'}"></div></div>
+       <div class="sub" style="margin-top:5px">${over?`Du ligger ${NOK(actual-lim)}/mnd over målet.`:`Du ligger ${NOK(lim-actual)}/mnd under målet – bra jobba!`}</div>
+     </div>`;
+   }
+   return `<div class="card" style="margin:0 0 8px;display:flex;justify-content:space-between;align-items:center;gap:8px">
+     <div><div style="font-weight:600">${esc(c)}</div><div class="sub">${NOK(actual)}/mnd i snitt</div></div>
+     <button class="clr goal-set" data-goal-cat="${esc(c)}" data-goal-val="${Math.round(actual*0.7/50)*50}">Sett mål −30 %</button></div>`;
+ }).join('');
+ area.innerHTML=head
+   +(tips.length?tips.map(x=>`<div class="card"><div style="font-weight:600;margin-bottom:4px">${esc(x.t)}</div><div style="font-size:13.5px;color:#dbe4ee;line-height:1.5">${x.b}</div></div>`).join(''):'')
+   +`<div class="card" style="background:none;border:none;padding:0;margin-top:2px"><h3>Sett sparemål per kategori</h3><div class="sub" style="margin:-4px 0 8px">Legg en månedlig grense per kategori og følg fremdriften hver måned.</div>${goalRows}</div>`;
+ area.querySelectorAll('.goal-set').forEach(b=>b.onclick=()=>{goals[b.dataset.goalCat]=Number(b.dataset.goalVal);saveGoals();renderTips();});
+ area.querySelectorAll('[data-goal-del]').forEach(b=>b.onclick=()=>{delete goals[b.dataset.goalDel];saveGoals();renderTips();});
 }
 /* export */
 function exportCSV(){
@@ -512,7 +549,7 @@ $('signupBtn').onclick=async()=>{
  if(si.error)return authMsg('Konto opprettet. Logg inn med passordet ditt.');
  afterLogin(si.data.user);
 };
-$('logout').onclick=async()=>{await sb.auth.signOut();user=null;TX=[];ownAccts=new Set();overrides={};isPremium=false;
+$('logout').onclick=async()=>{await sb.auth.signOut();user=null;TX=[];ownAccts=new Set();overrides={};goals={};isPremium=false;
  $('topbar').classList.add('hide');$('app').classList.add('hide');$('landing').classList.add('hide');$('auth').classList.remove('hide');authMsg('');};
 $('upgradeTop').onclick=showUpsell;
 $('upBuy').onclick=startCheckout;
