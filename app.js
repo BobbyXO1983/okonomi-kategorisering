@@ -1,0 +1,485 @@
+/* Kategoriser økonomien din — 100% klientbasert. */
+'use strict';
+const NOK=n=>Math.round(n).toLocaleString('no-NO')+' kr';
+const SEP='␟';
+let FILES=[];        // {name, rows(raw objects), headers, map}
+let TX=[];           // merged transactions
+/* ---------- Supabase ---------- */
+const SUPA_URL='https://ljorsudysagqmdsmsymg.supabase.co';
+const SUPA_KEY='sb_publishable_1EfmBjgKRF10wAYpGkWgPw_njK9G0EC';
+const sb=window.supabase.createClient(SUPA_URL,SUPA_KEY);
+let user=null;
+let ownAccts=new Set();
+let overrides={};
+let PENDING=[];      // parsed-but-not-saved transactions from uploads
+let isPremium=false;
+const PRICE_NOK=59;
+/* ---- affiliate / annonser (rediger lenkene til dine egne) ---- */
+const AFFILIATE=[
+ {tag:'Strøm',title:'Bytt til billigere strøm',desc:'Sammenlign strømavtaler og spar potensielt tusenlapper i året.',cta:'Se avtaler',url:'https://example.com/strom?ref=DITT_ID'},
+ {tag:'Forsikring',title:'Betaler du for mye på forsikring?',desc:'Sammenlign pris på bil, hus og innbo på to minutter.',cta:'Sammenlign',url:'https://example.com/forsikring?ref=DITT_ID'},
+ {tag:'Sparing',title:'Få mer ut av sparepengene',desc:'Se sparekontoer og fond med bedre rente.',cta:'Utforsk',url:'https://example.com/sparing?ref=DITT_ID'},
+];
+// Valgfri display-annonse (f.eks. Google AdSense-kode). La stå tom ('') for kun affiliate.
+const AD_SLOT_HTML='';
+const cookieConsent=()=>localStorage.getItem('cookieConsent'); // 'accepted' | 'rejected' | null
+function updatePlanUI(){
+ const b=document.getElementById('planBadge');const up=document.getElementById('upgradeTop');
+ if(!b)return;b.style.display='inline-block';b.textContent=isPremium?'Premium':'Gratis';
+ b.style.background=isPremium?'#1b3b2a':'#22344a';b.style.color=isPremium?'#7ee2a8':'#8ba0b6';
+ up.style.display=isPremium?'none':'inline-block';
+ document.getElementById('manageSub').style.display=isPremium?'inline-block':'none';
+}
+async function openPortal(){
+ const {data:{session}}=await sb.auth.getSession();if(!session)return;
+ try{const r=await fetch(SUPA_URL+'/functions/v1/customer-portal',{method:'POST',headers:{'Authorization':'Bearer '+session.access_token}});
+  const j=await r.json();if(j.url)location.href=j.url;else alert('Kunne ikke åpne kundeportal: '+(j.error||'ukjent'));}
+ catch(e){alert('Nettverksfeil: '+e);}
+}
+function renderAds(){
+ const ba=document.getElementById('freeBanner'),ads=document.getElementById('adsArea');if(!ads)return;
+ if(isPremium){ba.classList.add('hide');ads.innerHTML='';return;}
+ document.getElementById('freeBannerTxt').textContent='Gratis viser kun siste måned. Oppgrader for full historikk, kategori-redigering og reklamefri opplevelse.';
+ ba.classList.remove('hide');
+ const cards=AFFILIATE.map(a=>`<div class="card" style="margin:0">
+   <span class="pill">${esc(a.tag)}</span>
+   <div style="font-weight:600;margin:6px 0 2px">${esc(a.title)}</div>
+   <div class="sub" style="margin-bottom:8px">${esc(a.desc)}</div>
+   <a class="btn aff" data-tag="${esc(a.tag)}" data-url="${esc(a.url)}" style="text-decoration:none;display:inline-block;padding:6px 14px" href="${esc(a.url)}" target="_blank" rel="sponsored noopener nofollow">${esc(a.cta)} ↗</a>
+  </div>`).join('');
+ const showAd=AD_SLOT_HTML&&cookieConsent()==='accepted';   // display-annonser krever samtykke
+ ads.innerHTML=`<div class="card" style="background:none;border:none;padding:0;margin-top:4px">
+   <h3>Annonser &amp; tilbud <span class="sub" style="text-transform:none">· sponset</span></h3>
+   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">${cards}</div>
+   ${showAd?`<div style="margin-top:12px">${AD_SLOT_HTML}</div>`:''}</div>`;
+}
+async function saveOv(){ if(!user)return; await sb.from('category_overrides').delete().eq('user_id',user.id);
+ const rows=Object.entries(overrides).map(([group_key,category])=>({user_id:user.id,group_key,category}));
+ if(rows.length)await sb.from('category_overrides').upsert(rows,{onConflict:'user_id,group_key'}); }
+async function saveOwn(){ if(!user)return; await sb.from('own_accounts').delete().eq('user_id',user.id);
+ const rows=[...ownAccts].map(acct=>({user_id:user.id,acct})); if(rows.length)await sb.from('own_accounts').insert(rows); }
+
+/* ---------- number & date parsing ---------- */
+function num(v){
+ if(v==null||v==='')return null;
+ if(typeof v==='number')return v;
+ let s=(''+v).trim().replace(/\s| /g,'');
+ // norwegian: 1.234,56  or  1234,56 ; also plain 1234.56
+ if(/,\d{1,2}$/.test(s)){s=s.replace(/\./g,'').replace(',','.');}
+ else{s=s.replace(/,/g,'');}
+ s=s.replace(/[^0-9.\-]/g,'');
+ const n=parseFloat(s);return isNaN(n)?null:n;
+}
+function toDate(v){
+ if(v instanceof Date)return v;
+ if(typeof v==='number'){ // excel serial
+  const d=new Date(Math.round((v-25569)*86400*1000));return isNaN(d)?null:d;}
+ const s=(''+v).trim();
+ let m=s.match(/^(\d{4})[-\/.](\d{2})[-\/.](\d{2})/);if(m)return new Date(+m[1],+m[2]-1,+m[3]);
+ m=s.match(/^(\d{2})[-\/.](\d{2})[-\/.](\d{4})/);if(m)return new Date(+m[3],+m[2]-1,+m[1]);
+ const d=new Date(s);return isNaN(d)?null:d;
+}
+const iso=d=>d?d.toISOString().slice(0,10):'';
+const ym=d=>d?d.toISOString().slice(0,7):'';
+
+/* ---------- column auto-detection ---------- */
+function guessMap(headers,rows){
+ const H=headers.map(h=>({h,l:(h||'').toLowerCase()}));
+ const find=(re)=>{const x=H.find(o=>re.test(o.l));return x?x.h:'';};
+ const findClean=(re,bad)=>{const x=H.find(o=>re.test(o.l)&&!bad.test(o.l));return x?x.h:'';};
+ const map={
+  date:find(/dato|date|bokf|posting/),
+  desc:find(/beskriv|tekst|forklar|descrip|text|merchant|melding|narrative|detalj/),
+  amount:find(/^(amount|bel(ø|o)p|beloep|sum|bel(ø|o)p ?\(kr\))$/)||findClean(/amount|bel(ø|o)p|beloep|sum/,/currency|valuta|rate|kurs|orig/),
+  inn:find(/^inn$|kredit|credit|innbet|deposit/),
+  ut:find(/^ut$|debet|debit|utbet|withdraw|uttak/),
+  acctA:find(/til konto|to account|mottaker/),
+  acctB:find(/fra konto|from account|avsender/),
+  mcat:find(/merchant category|kategori|category/),
+ };
+ // fallbacks by scanning values
+ if(!map.date){for(const h of headers){if(rows.slice(0,8).every(r=>toDate(r[h]))){map.date=h;break;}}}
+ if(!map.amount&&!(map.inn&&map.ut)){
+  let best='',score=-1;
+  for(const h of headers){const vals=rows.slice(0,20).map(r=>num(r[h])).filter(v=>v!=null);
+   if(vals.length>score&&vals.some(v=>v<0||v>0)){best=h;score=vals.length;}}
+  map.amount=best;
+ }
+ if(!map.desc){ // longest text column
+  let best='',len=-1;
+  for(const h of headers){const avg=rows.slice(0,15).reduce((a,r)=>a+((''+(r[h]||'')).length),0);
+   if(avg>len&&!/\d{4,}/.test(headers)){best=h;len=avg;}}
+  map.desc=best;
+ }
+ return map;
+}
+function applyMap(f){
+ const {rows,map}=f;const out=[];
+ // banks often name the export file after the account number
+ const fnAcct=((f.name||'').match(/\d{8,}/)||[])[0];if(fnAcct)ownAccts.add(fnAcct);
+ // detect this file's own account = value present in (almost) every row across acctA/acctB
+ const acctCount={};
+ rows.forEach(r=>{[map.acctA,map.acctB].forEach(c=>{if(c){const v=(''+(r[c]||'')).replace(/\D/g,'');if(v.length>=6)acctCount[v]=(acctCount[v]||0)+1;}});});
+ let fileAcct='';let mx=0;for(const a in acctCount){if(acctCount[a]>mx){mx=acctCount[a];fileAcct=a;}}
+ if(fileAcct&&mx>=rows.length*0.5)ownAccts.add(fileAcct);
+ rows.forEach(r=>{
+  const d=toDate(r[map.date]);if(!d)return;
+  let amt=null;
+  if(map.amount&&r[map.amount]!=='')amt=num(r[map.amount]);
+  if(amt==null&&(map.inn||map.ut)){const inn=num(r[map.inn]),ut=num(r[map.ut]);
+   if(inn)amt=Math.abs(inn);else if(ut)amt=-Math.abs(ut);}
+  if(amt==null)return;
+  const desc=(''+(r[map.desc]||'')).trim();
+  // counterpart account (the acct that is NOT this file's own)
+  let cp='';[map.acctA,map.acctB].forEach(c=>{if(c){const v=(''+(r[c]||'')).replace(/\D/g,'');if(v.length>=6&&v!==fileAcct)cp=v;}});
+  const amount=Math.round(amt*100)/100;
+  const acctId=fileAcct||f.short;
+  const fp=[iso(d),amount,desc,acctId].join('|');   // dedup-nøkkel
+  out.push({date:iso(d),month:ym(d),account:f.short,description:desc,amount,counterpart:cp,mcat:map.mcat?(''+(r[map.mcat]||'')).trim():'',acctId,fingerprint:fp});
+ });
+ return out;
+}
+
+/* ---------- categorization ---------- */
+const RULES=[
+ ['Bompenger',[/bompeng|bompeng|autopass|ferde|nord-j(æ|ae)ren|bro\b/]],
+ ['Strømmetjenester',[/spotify|netflix|viaplay|hbo|max\b|disney|skyshowtime|storytel|podme|tv ?2|nrk tv|amazon prime|youtube ?premium/]],
+ ['Telefon',[/telenor|telia|\bice\b|onecall|talkmore|chilimobil|mycall|phonero|release mobil|fjordkraft mobil|mobil abonnement/]],
+ ['Internett',[/altibox|homenet|global ?connect|get as|lyse.*(fiber|bredb)|bredb(å|a)nd|broadband/]],
+ ['Strøm',[/lyse|lnett|tibber|fjordkraft|fortum|elvia|glitre|klepp energi|energi|str(ø|oe)m|elkraft|hafslund|agva|nettleie/]],
+ ['Forsikring',[/forsikr|fremtind|gjensidige|\btryg\b|\bif\b|storebrand|coverme|digisure|codan|frende|eika forsikr/]],
+ ['Lån & kreditt',[/santander|svea|\blån\b|renter|avdrag|kreditt|instabank|bank norwegian.*rente/]],
+ ['Sparing/investering',[/nordnet|bank ?norwegian|sparekonto|aksjesparing|fond|investering|kron\b|firi|coinbase/]],
+ ['Overføringer',[/^til[:\s]|^fra[:\s]|overf(ø|o)r|nettgiro|\bgiro\b/]],
+ ['Dagligvarer',[/rema|kiwi|coop|obs\b|extra|meny|bunnpris|spar\b|joker|matkroken|europris|matsenter|grocery|supermarket|nærbutikk|helios/]],
+ ['Restaurant & takeaway',[/restaurant|pizza|sushi|kebab|burger|mcdonald|max\b|egon|peppes|dolly|foodora|wolt|just eat|kantine|cafe|kaffe|bakeri|napoli|ming|lucky bowl|caterer|eating/]],
+ ['Uteliv & alkohol',[/vinmonopol|pub\b|bar\b|utested|nattklubb|brewery|drinking|beer|wine|liqu/]],
+ ['Transport',[/circle ?k|esso|shell|uno-?x|st1\b|drivstoff|bensin|diesel|\bvy\b|ruter|kolumbus|flytoget|nsb|parker|easypark|apcoa|ryde|voi\b|bolt|taxi|drosje|fuel|garage|car ?wash|bilvask/]],
+ ['Reise & hotell',[/hotel|hotell|sas\b|norwegian air|widerø|wideroe|flyr|ryanair|klm|lufthansa|airbnb|booking\.com|expedia|fly\b|cruise|ferge|color line|fjordline|duty free/]],
+ ['Abonnement & medier',[/tradingview|color club|adobe|microsoft|google \*|apple\.com\/bill|icloud|dropbox|domeneshop|patreon|substack|avis|newspaper/]],
+ ['Helse & apotek',[/apotek|vitus|boots|farmasi|lege|tannlege|fysio|helse|pharmac|sykehus/]],
+ ['Klær & sko',[/zalando|hm\b|h&m|zara|cubus|dressmann|bikbok|nike|adidas|xxl|sko\b|clothing|apparel|varner|boozt/]],
+ ['Personlig pleie',[/frisør|barber|salong|beauty|cosmetic|normal\b|kicks|vita\b/]],
+ ['Gaver & veldedighet',[/vipps\*?r(ø|oe)de kors|unicef|leger uten|donation|veldedig|gave|charit/]],
+ ['Bygg & oppussing',[/byggmakker|maxbo|montér|monter|jula|biltema|clas ohlson|jernia|obs bygg|bygg|rørlegger|elektriker|maler|lumber|hardware/]],
+ ['Hjem & møbler',[/ikea|jysk|skeidar|bohus|kid interi|furniture|home furnish|princess\b/]],
+ ['Elektronikk',[/power\b|elkjøp|elkjop|komplett|proshop|dustin|electronic|computer|elektro/]],
+ ['Offentlig & avgifter',[/kommune|skatteetaten|politi|kartverk|statens|miljøverk|fylkeskommune|nav\b|toll/]],
+ ['Spill & lotteri',[/norsk tipping|tipping|casino|betsson|unibet|lotto/]],
+];
+const MCAT=[ // if a merchant-category column exists (e.g. card exports)
+ [/grocery|supermarket|convenience|food stores|bakeries/,'Dagligvarer'],
+ [/eating|restaurant|fast food|caterer/,'Restaurant & takeaway'],
+ [/drinking|package stores|beer, wine/,'Uteliv & alkohol'],
+ [/cable|pay television/,'Strømmetjenester'],
+ [/software|digital goods|digital games|computer network|book stores/,'Abonnement & medier'],
+ [/automotive|car wash|parking|service station|taxicab|railway|commuter|transportation/,'Transport'],
+ [/lodging|hotel|cruise|airline|travel|duty free/,'Reise & hotell'],
+ [/lumber|building materials|home supply|hardware/,'Bygg & oppussing'],
+ [/furniture|home furnish/,'Hjem & møbler'],
+ [/cosmetic|barber|beauty/,'Personlig pleie'],
+ [/pharmac|drug stores/,'Helse & apotek'],
+ [/clothing|apparel|shoe|department stores/,'Klær & sko'],
+ [/electronic|computers/,'Elektronikk'],
+ [/charitable|social service/,'Gaver & veldedighet'],
+];
+function categorize(t){
+ // internal transfer?
+ if(t.counterpart&&ownAccts.has(t.counterpart))return {cat:'Intern overføring',type:'Intern'};
+ for(const a of ownAccts){if(a&&t.description.replace(/\D/g,'').includes(a))return {cat:'Intern overføring',type:'Intern'};}
+ const d=t.description.toLowerCase();
+ if(t.mcat){for(const [re,c] of MCAT)if(re.test(t.mcat.toLowerCase()))return {cat:c,type:t.amount<0?'Utgift':'Inntekt'};}
+ for(const [cat,res] of RULES){for(const re of res){if(re.test(d))return {cat,type:t.amount<0?'Utgift':'Inntekt'};}}
+ // person transfer (Vipps): capitalized name-ish, no company markers
+ const comp=/\bas\b|\basa\b|\bab\b|\bsa\b|\.com|\.no|\.se|\*|\bnuf\b|as \d|butikk|store|shop|bank|norwegian|nordnet|sparebank|\bdnb\b|nordea|klarna|paypal|vipps|forsikr|kommune/.test(d);
+ // person (Vipps): "Fornavn Etternavn" i Titlecase, ikke STORE BOKSTAVER-butikknavn
+ if(!comp&&/^[A-ZÆØÅ][a-zæøå'’\-]+ [A-ZÆØÅ][a-zæøåé'’\-]+/.test(t.description.trim()))return {cat:'Vipps & personoverføringer',type:t.amount<0?'Utgift':'Inntekt'};
+ if(t.amount>0)return {cat:'Andre innbetalinger',type:'Inntekt'};
+ return {cat:'Diverse/annet',type:'Utgift'};
+}
+function recategorize(){TX.forEach(t=>{const c=categorize(t);t.baseCat=c.cat;t.type=c.type;});}
+
+/* ---------- file loading ---------- */
+function readFile(file){
+ return new Promise(res=>{
+  const ext=file.name.split('.').pop().toLowerCase();
+  const short=file.name.replace(/\.(csv|xlsx|xls)$/i,'').slice(0,18);
+  if(ext==='csv'){
+   const r=new FileReader();
+   r.onload=e=>{let txt=e.target.result;
+    const dl=(txt.split('\n')[0].match(/;/g)||[]).length>=(txt.split('\n')[0].match(/,/g)||[]).length?';':',';
+    const p=Papa.parse(txt.replace(/^﻿/,''),{header:true,skipEmptyLines:true,delimiter:dl});
+    res({name:file.name,short,rows:p.data,headers:p.meta.fields||[]});};
+   r.readAsText(file,'utf-8');
+  }else{
+   const r=new FileReader();
+   r.onload=e=>{const wb=XLSX.read(e.target.result,{type:'array',cellDates:true});
+    const ws=wb.Sheets[wb.SheetNames[0]];const json=XLSX.utils.sheet_to_json(ws,{defval:''});
+    res({name:file.name,short,rows:json,headers:Object.keys(json[0]||{})});};
+   r.readAsArrayBuffer(file);
+  }
+ });
+}
+async function handleFiles(list){
+ for(const file of list){const f=await readFile(file);f.map=guessMap(f.headers,f.rows);FILES.push(f);}
+ renderFileList();renderMapArea();document.getElementById('goWrap').classList.remove('hide');
+}
+function renderFileList(){
+ document.getElementById('fileList').innerHTML=FILES.map((f,i)=>
+  `<div class="frow"><span>📄 ${f.name} <span class="sub">(${f.rows.length} rader)</span></span><b style="cursor:pointer;color:#ff8a80" data-i="${i}">✕</b></div>`).join('');
+ document.querySelectorAll('#fileList b').forEach(b=>b.onclick=()=>{FILES.splice(+b.dataset.i,1);renderFileList();renderMapArea();if(!FILES.length)document.getElementById('goWrap').classList.add('hide');});
+}
+function renderMapArea(){
+ const el=document.getElementById('mapArea');if(!FILES.length){el.innerHTML='';return;}
+ const opts=(headers,sel)=>'<option value="">—</option>'+headers.map(h=>`<option ${h===sel?'selected':''}>${h}</option>`).join('');
+ el.innerHTML=FILES.map((f,i)=>`<div class="card" style="max-width:620px;margin:10px auto;text-align:left">
+  <h3>${f.name} — kolonner</h3>
+  <div class="map">
+   <label>Dato</label><select data-i="${i}" data-f="date">${opts(f.headers,f.map.date)}</select>
+   <label>Beskrivelse</label><select data-i="${i}" data-f="desc">${opts(f.headers,f.map.desc)}</select>
+   <label>Beløp (ett felt)</label><select data-i="${i}" data-f="amount">${opts(f.headers,f.map.amount)}</select>
+   <label>…eller Inn</label><select data-i="${i}" data-f="inn">${opts(f.headers,f.map.inn)}</select>
+   <label>…og Ut</label><select data-i="${i}" data-f="ut">${opts(f.headers,f.map.ut)}</select>
+   <label>Motkonto (valgfritt)</label><select data-i="${i}" data-f="acctA">${opts(f.headers,f.map.acctA)}</select>
+   <label>Motkonto 2 (valgfritt)</label><select data-i="${i}" data-f="acctB">${opts(f.headers,f.map.acctB)}</select>
+  </div></div>`).join('');
+ el.querySelectorAll('select').forEach(s=>s.onchange=()=>{FILES[+s.dataset.i].map[s.dataset.f]=s.value;});
+}
+
+/* ---------- build & show app ---------- */
+let curMonth='',curCat='',off=new Set(),sortK='amount',sortDir=1,pie,levSort='sum',levDir=1;
+let months=[],COLOR={},CATS=[];
+function buildDerived(){
+ recategorize();
+ TX.sort((a,b)=>a.date.localeCompare(b.date));
+ months=[...new Set(TX.map(t=>t.month))].sort();
+ CATS=[...new Set(TX.filter(t=>t.type==='Utgift').map(t=>t.baseCat))].sort();
+ const PAL=['#4f9cf9','#ff8a80','#7ee2a8','#ffd166','#c792ea','#f78c6b','#80cbc4','#f48fb1','#90caf9','#a5d6a7','#ffab91','#ce93d8','#ffe082','#80deea','#bcaaa4','#e6ee9c','#b39ddb','#81d4fa','#ef9a9a','#a1887f','#9fa8da','#c5e1a5','#ffcc80','#b0bec5','#f8bbd0'];
+ [...new Set([...CATS,'Intern overføring','Andre innbetalinger'])].sort().forEach((c,i)=>COLOR[c]=PAL[i%PAL.length]);
+}
+const gid=t=>t.description+SEP+t.baseCat;
+const eff=t=>overrides[gid(t)]||t.baseCat;
+
+/* ---- cloud: parse uploads, save with dedup, load ---- */
+function parsePending(){PENDING=[];FILES.forEach(f=>{PENDING=PENDING.concat(applyMap(f));});return PENDING;}
+async function savePending(){
+ parsePending();
+ const msg=document.getElementById('saveMsg');
+ if(!PENDING.length){msg.textContent='Fant ingen transaksjoner i filene.';return;}
+ await saveOwn(); // persist any newly detected own accounts
+ const rows=PENDING.map(t=>({user_id:user.id,tx_date:t.date,account:t.account,description:t.description,amount:t.amount,counterpart:t.counterpart,mcat:t.mcat,source_file:t.acctId,fingerprint:t.fingerprint}));
+ // dedup: ignore rows whose (user_id,fingerprint) already exists
+ const {data,error}=await sb.from('transactions').upsert(rows,{onConflict:'user_id,fingerprint',ignoreDuplicates:true}).select();
+ if(error){msg.textContent='Feil ved lagring: '+error.message;return;}
+ const added=data?data.length:0;const dup=rows.length-added;
+ msg.textContent=`Lagret ${added} nye transaksjoner. ${dup} duplikat ble hoppet over.`;
+ FILES=[];renderFileList();renderMapArea();document.getElementById('goWrap').classList.add('hide');
+ await loadData();showApp();
+}
+async function loadData(){
+ // own accounts
+ const oa=await sb.from('own_accounts').select('acct');ownAccts=new Set((oa.data||[]).map(r=>r.acct));
+ // overrides
+ const ov=await sb.from('category_overrides').select('group_key,category');overrides={};(ov.data||[]).forEach(r=>overrides[r.group_key]=r.category);
+ // transactions (paged)
+ TX=[];let from=0;const page=1000;
+ while(true){const {data,error}=await sb.from('transactions').select('tx_date,account,description,amount,counterpart,mcat,fingerprint').order('tx_date').range(from,from+page-1);
+  if(error){alert('Feil ved lasting: '+error.message);break;}
+  (data||[]).forEach(r=>TX.push({date:r.tx_date,month:(r.tx_date||'').slice(0,7),account:r.account,description:r.description,amount:Number(r.amount),counterpart:r.counterpart||'',mcat:r.mcat||'',fingerprint:r.fingerprint}));
+  if(!data||data.length<page)break;from+=page;}
+ buildDerived();
+ await loadSubscription();
+}
+async function loadSubscription(){
+ const {data}=await sb.from('subscriptions').select('status,current_period_end').maybeSingle();
+ const okStatus=data&&['active','trialing'].includes(data.status);
+ const notExpired=!data||!data.current_period_end||new Date(data.current_period_end)>new Date();
+ isPremium=!!(okStatus&&notExpired);
+ updatePlanUI();
+}
+/* ---- premium gating ---- */
+function requirePremium(){ if(isPremium)return true; showUpsell(); return false; }
+function showUpsell(){document.getElementById('upMsg').textContent='';document.getElementById('upsell').classList.remove('hide');}
+function hideUpsell(){document.getElementById('upsell').classList.add('hide');}
+async function startCheckout(){
+ const msg=document.getElementById('upMsg');msg.textContent='Åpner betaling…';
+ const {data:{session}}=await sb.auth.getSession();
+ if(!session){msg.textContent='Logg inn først.';return;}
+ try{
+  const r=await fetch(SUPA_URL+'/functions/v1/create-checkout',{method:'POST',headers:{'Authorization':'Bearer '+session.access_token,'Content-Type':'application/json'}});
+  const j=await r.json();
+  if(j.url){location.href=j.url;}else{msg.textContent='Kunne ikke starte betaling: '+(j.error||'ukjent feil');}
+ }catch(e){msg.textContent='Nettverksfeil: '+e;}
+}
+function showApp(){
+ document.getElementById('auth').classList.add('hide');
+ document.getElementById('landing').classList.add('hide');
+ document.getElementById('app').classList.remove('hide');
+ document.getElementById('sub').textContent=`${TX.length?TX[0].date:''} – ${TX.length?TX[TX.length-1].date:''} · ${TX.length} transaksjoner`;
+ const mb=document.getElementById('months');mb.innerHTML='';
+ const latest=months[months.length-1];
+ const locked=v=>!isPremium&&v!==latest;   // gratis kan bare se siste måned
+ if(!isPremium)curMonth=latest||'';
+ const mk=(l,v)=>{const b=document.createElement('button');b.className='mbtn';b.textContent=l+(locked(v)?' 🔒':'');
+  b.onclick=()=>{if(locked(v)){showUpsell();return;}curMonth=v;render();};return b;};
+ mb.appendChild(mk('Alle',''));months.forEach(m=>mb.appendChild(mk(m,m)));
+ render();renderKonto();
+}
+function showUpload(){document.getElementById('auth').classList.add('hide');document.getElementById('app').classList.add('hide');document.getElementById('landing').classList.remove('hide');}
+function base(){
+ const latest=months[months.length-1];
+ const mFilter=isPremium?curMonth:latest;   // gratis: kun siste måned
+ return TX.filter(t=>t.type!=='Intern'&&(!mFilter||t.month===mFilter));
+}
+function esc(s){return (''+(s||'')).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function kpi(l,v,c){return `<div class="kpi"><div class="l">${l}</div><div class="v ${c}">${v}</div></div>`}
+
+function render(){
+ const mb=document.getElementById('months');
+ [...mb.children].forEach((b,i)=>b.classList.toggle('on',(i===0&&!curMonth)||b.textContent===curMonth));
+ const d=base();
+ const exp=d.filter(t=>t.type==='Utgift'),inc=d.filter(t=>t.type==='Inntekt');
+ const sE=exp.reduce((a,t)=>a+t.amount,0),sI=inc.reduce((a,t)=>a+t.amount,0);
+ document.getElementById('kpis').innerHTML=kpi('Utgifter',NOK(sE),'neg')+kpi('Inntekter',NOK(sI),'pos')+kpi('Netto',NOK(sI+sE),(sI+sE)>=0?'pos':'neg')+kpi('Antall kjøp',exp.length,'');
+ const cm={};exp.forEach(t=>{const c=eff(t);cm[c]=(cm[c]||0)+t.amount;});
+ const ce=Object.entries(cm).sort((a,b)=>a[1]-b[1]);
+ const shown=ce.filter(([c])=>!off.has(c));
+ document.getElementById('cTot').textContent=NOK(shown.reduce((a,x)=>a-x[1],0));
+ const labels=shown.map(x=>x[0]),vals=shown.map(x=>-x[1]),cols=labels.map(c=>COLOR[c]||'#888');
+ if(pie)pie.destroy();
+ pie=new Chart(document.getElementById('pie'),{type:'doughnut',data:{labels,datasets:[{data:vals,backgroundColor:cols,borderColor:'#182534',borderWidth:2,hoverOffset:8}]},
+  options:{responsive:true,maintainAspectRatio:false,cutout:'62%',plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${c.label}: ${NOK(c.raw)} (${(c.raw/vals.reduce((a,b)=>a+b,0)*100).toFixed(1)}%)`}}},
+   onClick:(e,el)=>{if(el.length){const c=labels[el[0].index];curCat=(curCat===c?'':c);render();}}}});
+ const tot=ce.reduce((a,x)=>a-x[1],0);
+ document.getElementById('legend').innerHTML=ce.map(([c,v])=>`<div class="lg ${off.has(c)?'off':''}" data-c="${esc(c)}" style="${curCat===c?'background:#20344a':''}"><span class="dot" style="background:${COLOR[c]||'#888'}"></span><span class="nm">${esc(c)}</span><span class="amt">${NOK(-v)}</span><span class="pct">${tot?(-v/tot*100).toFixed(0):0}%</span></div>`).join('');
+ document.querySelectorAll('#legend .lg').forEach(el=>el.onclick=ev=>{const c=el.dataset.c;if(ev.shiftKey){off.has(c)?off.delete(c):off.add(c);}else{curCat=(curCat===c?'':c);}render();});
+ const q=document.getElementById('q').value.trim().toLowerCase();
+ let rows=exp.slice();
+ if(q)rows=rows.filter(t=>t.description.toLowerCase().includes(q));
+ else if(curCat)rows=rows.filter(t=>eff(t)===curCat);
+ rows.sort((a,b)=>{let x=sortK==='category'?eff(a):a[sortK],y=sortK==='category'?eff(b):b[sortK];return sortK==='amount'?(x-y)*sortDir:(''+x).localeCompare(''+y)*sortDir;});
+ const rs=rows.reduce((a,t)=>a+t.amount,0);
+ document.getElementById('tblTitle').textContent=q?`«${q}» — ${rows.length} kjøp · ${NOK(rs)}`:(curCat?`${curCat} — ${rows.length} kjøp · ${NOK(rs)}`:`Alle utgifter — ${rows.length} kjøp · ${NOK(rs)}`);
+ document.querySelector('#tbl tbody').innerHTML=rows.map(t=>`<tr><td>${t.date}</td><td>${esc(t.account)}</td><td class="desc" data-name="${esc(t.description.split(/\s+/).slice(0,2).join(' '))}">${esc(t.description)}</td><td><span class="pill">${esc(eff(t))}</span></td><td class="num neg">${NOK(t.amount)} <span class="del" title="Slett transaksjon" data-fp="${esc(t.fingerprint||'')}">✕</span></td></tr>`).join('');
+ if(!document.getElementById('viewLev').classList.contains('hide'))renderLev();
+ renderAds();
+}
+async function deleteOne(fp){
+ if(!fp||!user)return;
+ await sb.from('transactions').delete().eq('user_id',user.id).eq('fingerprint',fp);
+ TX=TX.filter(t=>t.fingerprint!==fp);buildDerived();render();renderKonto();
+ document.getElementById('sub').textContent=`${TX.length?TX[0].date:''} – ${TX.length?TX[TX.length-1].date:''} · ${TX.length} transaksjoner`;
+}
+async function resetAccount(){
+ if(!user)return;
+ if(!confirm('Slette ALLE transaksjonene dine permanent? Dette kan ikke angres.'))return;
+ await sb.from('transactions').delete().eq('user_id',user.id);
+ TX=[];buildDerived();renderKonto();render();showUpload();
+}
+function renderLev(){
+ const q=document.getElementById('qlev').value.trim().toLowerCase();
+ const g={};TX.filter(t=>t.type==='Utgift').forEach(t=>{const k=gid(t);if(!g[k])g[k]={name:t.description,base:t.baseCat,cnt:0,sum:0};g[k].cnt++;g[k].sum+=t.amount;});
+ let arr=Object.entries(g).map(([k,v])=>({k,...v,eff:overrides[k]||v.base}));
+ if(q)arr=arr.filter(x=>x.name.toLowerCase().includes(q));
+ arr.sort((a,b)=>{let x=a[levSort],y=b[levSort];return (levSort==='sum'||levSort==='cnt')?(x-y)*levDir:(''+x).localeCompare(''+y)*levDir;});
+ const allCats=[...new Set([...CATS,...Object.values(overrides)])].sort();
+ const opt=c=>allCats.map(o=>`<option ${o===c?'selected':''}>${esc(o)}</option>`).join('');
+ document.querySelector('#levtbl tbody').innerHTML=arr.map(x=>`<tr><td>${esc(x.name)}</td><td class="num">${x.cnt}</td><td class="num neg">${NOK(x.sum)}</td><td><select class="catsel ${x.eff!==x.base?'changed':''}" data-k="${esc(x.k)}">${opt(x.eff)}</select></td></tr>`).join('');
+ document.querySelectorAll('#levtbl select.catsel').forEach(s=>s.onchange=()=>{
+   if(!isPremium){showUpsell();renderLev();return;}
+   const k=s.dataset.k,base=k.split(SEP)[1];if(s.value===base)delete overrides[k];else overrides[k]=s.value;saveOv();render();});
+}
+function renderKonto(){
+ document.getElementById('ownChips').innerHTML=[...ownAccts].map(a=>`<span class="chip">${a} <b data-a="${a}">✕</b></span>`).join('')||'<span class="sub">Ingen kontoer registrert ennå.</span>';
+ document.querySelectorAll('#ownChips b').forEach(b=>b.onclick=()=>{ownAccts.delete(b.dataset.a);saveOwn();buildDerived();renderKonto();render();});
+ const n=TX.filter(t=>t.type==='Intern').length;
+ document.getElementById('internNote').textContent=`${n} transaksjoner er markert som interne overføringer og holdt utenfor.`;
+}
+/* export */
+function exportCSV(){
+ if(!requirePremium())return;
+ const head=['Dato','Konto','Beskrivelse','Kategori','Type','Beløp'];
+ const lines=[head.join(';')].concat(TX.map(t=>[t.date,t.account,'"'+t.description.replace(/"/g,'""')+'"',eff(t),t.type,(''+t.amount).replace('.',',')].join(';')));
+ const blob=new Blob(['﻿'+lines.join('\n')],{type:'text/csv'});
+ const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='kategorisert.csv';a.click();
+}
+
+/* ---------- wire up ---------- */
+const drop=document.getElementById('drop'),file=document.getElementById('file');
+drop.onclick=()=>file.click();
+drop.ondragover=e=>{e.preventDefault();drop.classList.add('hot');};
+drop.ondragleave=()=>drop.classList.remove('hot');
+drop.ondrop=e=>{e.preventDefault();drop.classList.remove('hot');handleFiles(e.dataTransfer.files);};
+file.onchange=()=>handleFiles(file.files);
+document.getElementById('save').onclick=savePending;
+document.getElementById('toApp').onclick=()=>{if(TX.length)showApp();else document.getElementById('saveMsg').textContent='Ingen lagrede transaksjoner ennå – last opp og lagre først.';};
+document.getElementById('addMore').onclick=showUpload;
+document.getElementById('expBtn').onclick=exportCSV;
+document.getElementById('q').oninput=e=>{document.getElementById('qd').value=e.target.value;render();};
+document.getElementById('qd').oninput=e=>{document.getElementById('q').value=e.target.value;render();};
+document.getElementById('qlev').oninput=renderLev;
+document.getElementById('clr').onclick=()=>{curCat='';off.clear();document.getElementById('q').value='';document.getElementById('qd').value='';render();};
+document.getElementById('resetOv').onclick=()=>{if(confirm('Tilbakestille alle kategoriendringer?')){overrides={};saveOv();render();}};
+document.getElementById('ownAdd').onclick=()=>{const v=document.getElementById('ownInput').value.replace(/\D/g,'');if(v){ownAccts.add(v);saveOwn();document.getElementById('ownInput').value='';buildDerived();renderKonto();render();}};
+function switchView(v){['Oversikt','Lev','Konto'].forEach(x=>{document.getElementById('view'+x).classList.toggle('hide',x!==v);document.getElementById('tab'+x).classList.toggle('on',x===v);});if(v==='Lev')renderLev();if(v==='Konto')renderKonto();}
+document.getElementById('tabOversikt').onclick=()=>switchView('Oversikt');
+document.getElementById('tabLev').onclick=()=>switchView('Lev');
+document.getElementById('tabKonto').onclick=()=>switchView('Konto');
+document.querySelectorAll('#tbl thead tr:first-child th').forEach(th=>th.onclick=()=>{const k=th.dataset.k;if(sortK===k)sortDir*=-1;else{sortK=k;sortDir=1;}render();});
+document.querySelectorAll('#levtbl thead th').forEach(th=>th.onclick=()=>{const k=th.dataset.k;if(!k)return;if(levSort===k)levDir*=-1;else{levSort=k;levDir=1;}renderLev();});
+document.querySelector('#tbl tbody').addEventListener('click',e=>{
+ const del=e.target.closest('.del');if(del){e.stopPropagation();deleteOne(del.dataset.fp);return;}
+ const c=e.target.closest('td.desc');if(c){document.getElementById('q').value=c.dataset.name;document.getElementById('qd').value=c.dataset.name;render();}});
+document.getElementById('resetAcct').onclick=resetAccount;
+
+/* ---------- auth ---------- */
+const $=id=>document.getElementById(id);
+function authMsg(t){$('authMsg').textContent=t;}
+async function afterLogin(u){
+ user=u;$('whoami').textContent=u.email;$('topbar').classList.remove('hide');
+ authMsg('Laster dataene dine…');
+ await loadData();authMsg('');
+ if(TX.length)showApp();else showUpload();
+ const params=new URLSearchParams(location.search);
+ if(params.get('checkout')==='success'){
+  // Stripe-webhook kan bruke et par sekunder på å oppdatere status
+  setTimeout(async()=>{await loadSubscription();history.replaceState({},'',location.pathname);},2500);
+ }else if(params.get('checkout')==='cancel'){history.replaceState({},'',location.pathname);}
+}
+$('loginBtn').onclick=async()=>{
+ const email=$('email').value.trim(),password=$('pw').value;
+ if(!email||!password)return authMsg('Fyll inn e-post og passord.');
+ authMsg('Logger inn…');
+ const {data,error}=await sb.auth.signInWithPassword({email,password});
+ if(error)return authMsg('Innlogging feilet: '+error.message);
+ afterLogin(data.user);
+};
+$('signupBtn').onclick=async()=>{
+ const email=$('email').value.trim(),password=$('pw').value;
+ if(!email||password.length<6)return authMsg('Oppgi e-post og passord (min. 6 tegn).');
+ authMsg('Oppretter konto…');
+ const {data,error}=await sb.auth.signUp({email,password});
+ if(error)return authMsg('Kunne ikke opprette: '+error.message);
+ if(data.session){afterLogin(data.user);return;}
+ // auto-bekreftelse er på → logg inn med en gang
+ const si=await sb.auth.signInWithPassword({email,password});
+ if(si.error)return authMsg('Konto opprettet. Logg inn med passordet ditt.');
+ afterLogin(si.data.user);
+};
+$('logout').onclick=async()=>{await sb.auth.signOut();user=null;TX=[];ownAccts=new Set();overrides={};isPremium=false;
+ $('topbar').classList.add('hide');$('app').classList.add('hide');$('landing').classList.add('hide');$('auth').classList.remove('hide');authMsg('');};
+$('upgradeTop').onclick=showUpsell;
+$('upBuy').onclick=startCheckout;
+$('upClose').onclick=hideUpsell;
+$('manageSub').onclick=openPortal;
+$('bannerUp').onclick=showUpsell;
+/* cookie consent */
+function setConsent(v){localStorage.setItem('cookieConsent',v);$('consent').classList.add('hide');renderAds();}
+$('cookieAccept').onclick=()=>setConsent('accepted');
+$('cookieReject').onclick=()=>setConsent('rejected');
+if(!cookieConsent())$('consent').classList.remove('hide');
+/* affiliate klikk-sporing */
+$('adsArea').addEventListener('click',e=>{const a=e.target.closest('a.aff');if(a&&user){
+ sb.from('affiliate_clicks').insert({user_id:user.id,tag:a.dataset.tag,url:a.dataset.url});}});
+/* restore session on load */
+(async()=>{const {data}=await sb.auth.getSession();if(data.session)afterLogin(data.session.user);})();

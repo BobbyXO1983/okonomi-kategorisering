@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="no"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kategoriser økonomien din</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{--bg:#0f1620;--card:#182534;--ink:#e8eef5;--mut:#8ba0b6;--acc:#4f9cf9;--line:#243447;}
+*{box-sizing:border-box}html,body{margin:0}
+body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--ink);font-size:14.5px}
+.wrap{max-width:1180px;margin:0 auto;padding:16px 20px}
+h1{font-size:20px;margin:0 0 2px}.sub{color:var(--mut);font-size:12px}
+a{color:var(--acc)}
+.hero{text-align:center;padding:26px 10px}
+.drop{border:2px dashed var(--line);border-radius:14px;padding:34px;background:var(--card);cursor:pointer;transition:.15s;max-width:620px;margin:14px auto}
+.drop.hot{border-color:var(--acc);background:#1c2c40}
+.drop b{color:var(--acc)}
+.btn{background:var(--acc);color:#04121f;border:none;border-radius:8px;padding:9px 18px;font-size:14px;font-weight:600;cursor:pointer}
+.btn.ghost{background:none;border:1px solid var(--line);color:var(--mut);font-weight:500}
+.files{max-width:620px;margin:10px auto;text-align:left}
+.frow{display:flex;justify-content:space-between;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin-bottom:6px;font-size:13px}
+.tabs{display:flex;gap:6px;margin:14px 0}
+.tab{background:var(--card);color:var(--mut);border:1px solid var(--line);border-radius:8px;padding:8px 16px;font-size:13px;cursor:pointer;font-weight:600}
+.tab.on{background:var(--acc);color:#04121f;border-color:var(--acc)}
+.months{display:flex;gap:6px;flex-wrap:wrap}
+.mbtn{background:var(--card);color:var(--mut);border:1px solid var(--line);border-radius:20px;padding:5px 12px;font-size:12px;cursor:pointer}
+.mbtn.on{background:var(--acc);color:#04121f;border-color:var(--acc);font-weight:600}
+.kpis{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 14px;flex:1;min-width:120px}
+.kpi .l{color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+.kpi .v{font-size:20px;font-weight:700;margin-top:3px}
+.main{display:grid;grid-template-columns:380px 1fr;gap:16px;align-items:start}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
+.card h3{margin:0 0 8px;font-size:13px;font-weight:600;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
+.piewrap{position:relative;height:340px}
+.center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none}
+.center .b{font-size:20px;font-weight:700}.center .s{font-size:11px;color:var(--mut)}
+.legend{margin-top:10px;max-height:300px;overflow:auto}
+.lg{display:flex;align-items:center;gap:8px;padding:6px 6px;border-radius:6px;cursor:pointer;font-size:12px}
+.lg:hover{background:#20344a}.lg.off{opacity:.35}
+.dot{width:10px;height:10px;border-radius:3px;flex:0 0 auto}
+.lg .nm{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lg .amt{font-variant-numeric:tabular-nums;color:var(--mut)}.lg .pct{width:42px;text-align:right}
+.bar{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px;flex-wrap:wrap}
+.clr{background:none;border:1px solid var(--line);color:var(--mut);border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer}
+.tblwrap{max-height:640px;overflow:auto}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
+th{color:var(--mut);font-weight:600;cursor:pointer;position:sticky;top:0;background:var(--card)}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+.neg{color:#ff8a80}.pos{color:#7ee2a8}
+.filt th{padding:4px 8px;position:sticky;top:29px;background:var(--card)}
+.filt input{width:100%;background:#0f1620;color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:5px 8px;font-size:12px}
+td.desc{cursor:pointer}td.desc:hover{color:var(--acc);text-decoration:underline}
+.del{cursor:pointer;color:#4a5a6b;margin-left:8px;font-size:11px}.del:hover{color:#ff8a80}
+.pill{display:inline-block;padding:1px 7px;border-radius:20px;font-size:10.5px;background:#22344a;color:var(--mut)}
+select,input.txt{background:#0f1620;color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font-size:12px}
+select.catsel.changed{border-color:var(--acc);color:var(--acc)}
+.map{display:grid;grid-template-columns:150px 1fr;gap:8px 12px;align-items:center;font-size:13px;margin:8px 0}
+.chip{display:inline-flex;align-items:center;gap:6px;background:#22344a;border-radius:16px;padding:3px 10px;font-size:12px;margin:3px}
+.chip b{cursor:pointer;color:var(--mut)}
+.foot{color:var(--mut);font-size:11px;margin-top:10px}
+.hide{display:none}
+.priv{max-width:620px;margin:8px auto;color:var(--mut);font-size:12px}
+@media(max-width:820px){.main{grid-template-columns:1fr}}
+@media(max-width:560px){
+ body{font-size:13.5px}.wrap{padding:12px}h1{font-size:18px}
+ .kpis{gap:8px}.kpi{flex:1 1 calc(33% - 8px);min-width:0;padding:8px 10px}.kpi .v{font-size:16px}
+ .main{gap:12px}.card{padding:12px}.piewrap{height:250px}
+ #tbl th:nth-child(2),#tbl td:nth-child(2){display:none}
+ .map{grid-template-columns:1fr}
+}
+</style></head><body><div class="wrap">
+
+<!-- TOPBAR (logged in) -->
+<div id="topbar" class="hide" style="display:flex;justify-content:flex-end;align-items:center;gap:10px;margin-bottom:6px">
+ <span id="planBadge" class="pill" style="display:none"></span>
+ <span class="sub" id="whoami"></span>
+ <button class="clr" id="upgradeTop" style="display:none">Oppgrader</button>
+ <button class="clr" id="manageSub" style="display:none">Administrer abonnement</button>
+ <button class="clr" id="logout">Logg ut</button>
+</div>
+
+<!-- AUTH -->
+<div id="auth">
+ <div class="hero">
+  <h1>Kategoriser økonomien din</h1>
+  <div class="sub">Logg inn for å lagre kontoutskriftene dine og bygge oversikten over tid. Data lagres kryptert per bruker.</div>
+  <div class="card" style="max-width:380px;margin:18px auto;text-align:left">
+   <div class="map" style="grid-template-columns:1fr">
+    <input class="txt" id="email" type="email" placeholder="E-post" autocomplete="username">
+    <input class="txt" id="pw" type="password" placeholder="Passord (min. 6 tegn)" autocomplete="current-password">
+   </div>
+   <div style="display:flex;gap:8px;margin-top:8px">
+    <button class="btn" id="loginBtn" style="flex:1">Logg inn</button>
+    <button class="btn ghost" id="signupBtn" style="flex:1">Opprett konto</button>
+   </div>
+   <div class="sub" id="authMsg" style="margin-top:8px;min-height:16px"></div>
+  </div>
+  <div class="sub" style="max-width:380px;margin:8px auto">Gratis å komme i gang. <b style="color:var(--ink)">Premium kr 59/mnd</b> låser opp kategori-redigering, CSV-eksport og full historikk.</div>
+ </div>
+</div>
+
+<!-- UPSELL MODAL -->
+<div id="upsell" class="hide" style="position:fixed;inset:0;background:rgba(4,10,18,.65);display:flex;align-items:center;justify-content:center;z-index:50;padding:16px">
+ <div class="card" style="max-width:360px;width:100%">
+  <h3 style="color:var(--acc);margin-top:0">Premium</h3>
+  <div class="sub">Lås opp kategori-redigering per leverandør, CSV-eksport og full historikk over tid.</div>
+  <div style="font-size:24px;font-weight:700;margin:12px 0">kr 59 <span class="sub" style="font-size:13px">/ måned</span></div>
+  <div style="display:flex;gap:8px">
+   <button class="btn" id="upBuy" style="flex:1">Oppgrader nå</button>
+   <button class="clr" id="upClose">Lukk</button>
+  </div>
+  <div class="sub" id="upMsg" style="margin-top:8px;min-height:15px"></div>
+ </div>
+</div>
+
+<!-- LANDING / UPLOAD -->
+<div id="landing" class="hide">
+ <div class="hero">
+  <h1>Kategoriser økonomien din</h1>
+  <div class="sub">Last opp kontoutskrifter (CSV eller Excel). Alt skjer i nettleseren din — <b>ingen data sendes til noen server</b>.</div>
+  <div class="drop" id="drop"><b>Klikk for å velge filer</b> eller dra dem hit<br><span class="sub">CSV / XLSX fra nettbanken din · flere filer støttes</span></div>
+  <input type="file" id="file" multiple accept=".csv,.xlsx,.xls" class="hide">
+  <div class="files" id="fileList"></div>
+  <div id="mapArea"></div>
+  <div class="priv">Tips: eksporter transaksjoner fra nettbanken din som CSV eller Excel. Appen gjenkjenner kolonnene automatisk – du kan justere før du fortsetter.</div>
+  <div id="goWrap" class="hide" style="margin-top:12px">
+   <button class="btn" id="save">Lagre til min konto →</button>
+   <button class="clr" id="toApp" style="margin-left:8px">Til oversikt</button>
+   <div class="sub" id="saveMsg" style="margin-top:8px"></div>
+  </div>
+ </div>
+</div>
+
+<!-- APP -->
+<div id="app" class="hide">
+ <div class="bar">
+  <div><h1>Oversikt</h1><div class="sub" id="sub"></div></div>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+   <input class="txt" id="q" placeholder="Søk leverandør…" style="min-width:200px">
+   <button class="clr" id="addMore">+ Flere filer</button>
+   <button class="clr" id="expBtn">Last ned CSV</button>
+  </div>
+ </div>
+ <div class="tabs">
+  <button class="tab on" id="tabOversikt">Oversikt</button>
+  <button class="tab" id="tabLev">Leverandører</button>
+  <button class="tab" id="tabKonto">Kontoer</button>
+ </div>
+ <div class="months" id="months" style="margin-bottom:12px"></div>
+
+ <div id="viewOversikt">
+  <div id="freeBanner" class="card hide" style="display:flex;justify-content:space-between;align-items:center;gap:10px;border-color:#3a4a5b">
+   <span class="sub" id="freeBannerTxt"></span><button class="btn" id="bannerUp" style="padding:6px 14px">Oppgrader</button>
+  </div>
+  <div class="kpis" id="kpis"></div>
+  <div class="main">
+   <div class="card">
+    <h3>Andel av utgifter</h3>
+    <div class="piewrap"><canvas id="pie"></canvas><div class="center"><div class="b" id="cTot"></div><div class="s">utgifter</div></div></div>
+    <div class="legend" id="legend"></div>
+   </div>
+   <div class="card">
+    <div class="bar"><h3 id="tblTitle" style="margin:0">Transaksjoner</h3><button class="clr" id="clr">Nullstill filter</button></div>
+    <div class="tblwrap"><table id="tbl"><thead>
+     <tr><th data-k="date">Dato</th><th data-k="account">Konto</th><th data-k="description">Beskrivelse</th><th data-k="category">Kategori</th><th class="num" data-k="amount">Beløp</th></tr>
+     <tr class="filt"><th></th><th></th><th><input id="qd" placeholder="filtrer navn/beskrivelse…"></th><th></th><th></th></tr>
+    </thead><tbody></tbody></table></div>
+   </div>
+  </div>
+  <div id="adsArea"></div>
+ </div>
+
+ <div id="viewLev" class="hide">
+  <div class="card">
+   <div class="bar"><h3 style="margin:0">Leverandører — endre kategori</h3>
+    <div style="display:flex;gap:8px"><input class="txt" id="qlev" placeholder="søk leverandør…"><button class="clr" id="resetOv">Tilbakestill alle</button></div></div>
+   <div class="sub" style="margin-bottom:8px">Velg ny kategori i menyen. Endringer lagres i nettleseren og oppdaterer alt.</div>
+   <div style="max-height:640px;overflow:auto"><table id="levtbl"><thead><tr>
+    <th data-k="name">Leverandør</th><th class="num" data-k="cnt">Antall</th><th class="num" data-k="sum">Sum</th><th data-k="eff">Kategori (endre)</th>
+   </tr></thead><tbody></tbody></table></div>
+  </div>
+ </div>
+
+ <div id="viewKonto" class="hide">
+  <div class="card">
+   <h3>Egne kontoer — utelat interne overføringer</h3>
+   <div class="sub">Overføringer mellom dine egne kontoer telles ikke som forbruk/inntekt. Legg til kontonumre appen skal se på som «dine».</div>
+   <div id="ownChips" style="margin:10px 0"></div>
+   <div style="display:flex;gap:8px"><input class="txt" id="ownInput" placeholder="kontonummer…" style="min-width:180px"><button class="clr" id="ownAdd">Legg til</button></div>
+   <div class="sub" style="margin-top:10px" id="internNote"></div>
+  </div>
+  <div class="card">
+   <h3 style="color:#ff8a80">Faresone</h3>
+   <div class="sub">Slett alle transaksjonene dine permanent. Kategori-endringer og kontoer beholdes.</div>
+   <button class="clr" id="resetAcct" style="border-color:#ff8a80;color:#ff8a80;margin-top:8px">Slett alle transaksjoner</button>
+  </div>
+ </div>
+</div>
+
+<div class="foot">Personvern: filene leses lokalt i nettleseren og lastes aldri opp. Kategori-endringer lagres kun på din enhet (localStorage).</div>
+</div>
+<!-- COOKIE CONSENT -->
+<div id="consent" class="hide" style="position:fixed;left:0;right:0;bottom:0;background:#182534;border-top:1px solid var(--line);padding:12px 16px;z-index:60;display:flex;gap:12px;align-items:center;justify-content:center;flex-wrap:wrap">
+ <span class="sub" style="max-width:640px">Vi bruker informasjonskapsler til å måle bruk og vise relevante annonser. Nødvendige funksjoner virker uansett. Du kan godta eller avslå annonse-informasjonskapsler.</span>
+ <div style="display:flex;gap:8px">
+  <button class="btn" id="cookieAccept" style="padding:6px 14px">Godta</button>
+  <button class="clr" id="cookieReject">Avslå</button>
+ </div>
+</div>
+<script src="app.js"></script>
+</body></html>
