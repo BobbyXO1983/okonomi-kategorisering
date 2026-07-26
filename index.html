@@ -100,6 +100,34 @@ select.catsel.changed{border-color:var(--acc);color:var(--acc)}
 .lp-feat p{margin:0;color:var(--mut);font-size:13px;line-height:1.45}
 .lp-cta2{text-align:center;margin:34px auto 0}
 .lp-demo{font-size:10px;color:var(--mut);text-align:right;margin-top:6px}
+/* preview replica (anonyme eksempeldata) */
+.pv-wrap{max-width:940px;margin:28px auto 0}
+.pv-top{display:flex;justify-content:space-between;align-items:baseline;padding:12px 14px 4px}
+.pv-top h4{margin:0;font-size:15px;color:var(--ink)}
+.pv-top .s{font-size:11px;color:var(--mut)}
+.pv-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:8px 14px}
+.pv-kpi{background:#152337;border:1px solid var(--line);border-radius:8px;padding:9px 11px}
+.pv-kpi .l{font-size:9px;color:var(--mut);text-transform:uppercase;letter-spacing:.05em}
+.pv-kpi .v{font-size:15px;font-weight:700;margin-top:2px}
+.pv-main{display:grid;grid-template-columns:290px 1fr;gap:12px;padding:8px 14px 6px}
+.pv-card{background:#111d2e;border:1px solid var(--line);border-radius:10px;padding:12px}
+.pv-h{font-size:10px;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px}
+.pv-donut{width:148px;height:148px;margin:0 auto 12px;border-radius:50%;position:relative;
+ background:conic-gradient(#4f9cf9 0 24%,#ff8a80 24% 42%,#7ee2a8 42% 55%,#ffd166 55% 66%,#c792ea 66% 74%,#80cbc4 74% 81%,#f48fb1 81% 87%,#b0bec5 87% 100%)}
+.pv-donut::after{content:'';position:absolute;inset:30px;background:#111d2e;border-radius:50%}
+.pv-donut .c{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.pv-donut .c b{font-size:16px}.pv-donut .c s{font-size:9px;color:var(--mut);text-decoration:none}
+.pv-leg{display:grid;gap:7px}
+.pv-leg div{display:flex;align-items:center;gap:8px;font-size:12px;color:#dbe4ee}
+.pv-leg .d{width:9px;height:9px;border-radius:3px;flex:0 0 auto}
+.pv-leg .a{margin-left:auto;color:var(--mut);font-variant-numeric:tabular-nums}
+.pv-tbl{width:100%;border-collapse:collapse;font-size:12px}
+.pv-tbl th{text-align:left;color:var(--mut);font-weight:600;font-size:9.5px;text-transform:uppercase;letter-spacing:.04em;padding:0 0 8px}
+.pv-tbl td{padding:7px 0;border-top:1px solid var(--line);color:#dbe4ee;white-space:nowrap}
+.pv-pill{background:#22344a;color:var(--mut);border-radius:20px;padding:1px 7px;font-size:10px}
+.pv-amt{text-align:right;color:#ff8a80;font-variant-numeric:tabular-nums}
+.pv-demo{font-size:10px;color:var(--mut);text-align:right;padding:2px 14px 12px}
+@media(max-width:820px){.pv-main{grid-template-columns:1fr}.pv-kpis{grid-template-columns:repeat(2,1fr)}.pv-tbl .hidem{display:none}}
 @media(max-width:820px){.lp-hero{grid-template-columns:1fr;gap:22px}.lp-h1{font-size:28px}.lp-features{grid-template-columns:1fr}}
 @media(max-width:820px){.main{grid-template-columns:1fr}}
 @media(max-width:560px){
@@ -146,6 +174,51 @@ select.catsel.changed{border-color:var(--acc);color:var(--acc)}
      <div class="sub" id="authMsg" style="margin-top:8px;min-height:16px"></div>
      <div class="lp-note">Gratis å komme i gang – ingen betalingskort nødvendig.</div>
     </div>
+   </div>
+  </div>
+
+  <div class="pv-wrap">
+   <div class="lp-frame">
+    <div class="lp-dots"><span></span><span></span><span></span></div>
+    <div class="pv-top"><h4>Oversikt</h4><span class="s">1. jan – 31. jul · 132 transaksjoner</span></div>
+    <div class="pv-kpis">
+     <div class="pv-kpi"><div class="l">Utgifter</div><div class="v neg">−26 450 kr</div></div>
+     <div class="pv-kpi"><div class="l">Inntekter</div><div class="v pos">34 900 kr</div></div>
+     <div class="pv-kpi"><div class="l">Netto</div><div class="v pos">+8 450 kr</div></div>
+     <div class="pv-kpi"><div class="l">Antall kjøp</div><div class="v">132</div></div>
+    </div>
+    <div class="pv-main">
+     <div class="pv-card">
+      <div class="pv-h">Andel av utgifter</div>
+      <div class="pv-donut"><div class="c"><b>26 450</b><s>kr</s></div></div>
+      <div class="pv-leg">
+       <div><span class="d" style="background:#4f9cf9"></span>Dagligvarer<span class="a">6 350 kr · 24%</span></div>
+       <div><span class="d" style="background:#ff8a80"></span>Bolig &amp; strøm<span class="a">4 760 kr · 18%</span></div>
+       <div><span class="d" style="background:#7ee2a8"></span>Transport<span class="a">3 440 kr · 13%</span></div>
+       <div><span class="d" style="background:#ffd166"></span>Restaurant<span class="a">2 910 kr · 11%</span></div>
+       <div><span class="d" style="background:#c792ea"></span>Abonnement<span class="a">2 120 kr · 8%</span></div>
+       <div><span class="d" style="background:#80cbc4"></span>Forsikring<span class="a">1 850 kr · 7%</span></div>
+       <div><span class="d" style="background:#f48fb1"></span>Klær &amp; sko<span class="a">1 590 kr · 6%</span></div>
+       <div><span class="d" style="background:#b0bec5"></span>Annet<span class="a">3 430 kr · 13%</span></div>
+      </div>
+     </div>
+     <div class="pv-card">
+      <div class="pv-h">Transaksjoner</div>
+      <table class="pv-tbl">
+       <thead><tr><th>Dato</th><th class="hidem">Konto</th><th>Beskrivelse</th><th>Kategori</th><th style="text-align:right">Beløp</th></tr></thead>
+       <tbody>
+        <tr><td>2026-07-21</td><td class="hidem">Brukskonto</td><td>REMA 1000</td><td><span class="pv-pill">Dagligvarer</span></td><td class="pv-amt">−842 kr</td></tr>
+        <tr><td>2026-07-20</td><td class="hidem">Brukskonto</td><td>Circle K</td><td><span class="pv-pill">Transport</span></td><td class="pv-amt">−615 kr</td></tr>
+        <tr><td>2026-07-19</td><td class="hidem">Kortkonto</td><td>Netflix</td><td><span class="pv-pill">Abonnement</span></td><td class="pv-amt">−149 kr</td></tr>
+        <tr><td>2026-07-18</td><td class="hidem">Brukskonto</td><td>Tibber Norge</td><td><span class="pv-pill">Bolig &amp; strøm</span></td><td class="pv-amt">−1 230 kr</td></tr>
+        <tr><td>2026-07-17</td><td class="hidem">Kortkonto</td><td>KIWI</td><td><span class="pv-pill">Dagligvarer</span></td><td class="pv-amt">−398 kr</td></tr>
+        <tr><td>2026-07-16</td><td class="hidem">Brukskonto</td><td>Vinmonopolet</td><td><span class="pv-pill">Uteliv</span></td><td class="pv-amt">−540 kr</td></tr>
+        <tr><td>2026-07-15</td><td class="hidem">Kortkonto</td><td>Spotify</td><td><span class="pv-pill">Abonnement</span></td><td class="pv-amt">−129 kr</td></tr>
+       </tbody>
+      </table>
+     </div>
+    </div>
+    <div class="pv-demo">Eksempeldata – dine egne tall vises når du logger inn.</div>
    </div>
   </div>
 
