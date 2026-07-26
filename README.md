@@ -107,8 +107,13 @@ brukeren har trykket «Godta».
 **Viktig (personvern/regler):**
 - Bruk **aldri** brukernes transaksjons-/finansdata til å målrette annonser.
 - Legger du til sporingsannonser (AdSense o.l.), trenger du et **samtykke-/cookie-banner** (GDPR).
-- Affiliate for finansprodukter (lån, forsikring) kan utløse markedsføringsregler — merk innhold
-  tydelig som «sponset» (allerede gjort) og sjekk vilkårene til partnerprogrammet.
+- **Merking:** Forbrukertilsynet krever at reklamelenker merkes «annonselenke» eller «reklamelenke»
+  — *ikke* «sponset», «i samarbeid med» eller «affiliatelenke». Appen merker nå hver lenke som
+  «Annonselenke» og seksjonen heter «Annonselenker».
+- **Lånereklame (forbrukslån/refinansiering):** kredittmarkedsføring er strengt regulert. Bruk
+  annonsørens **godkjente** annonsetekst, oppgi **effektiv rente** og et representativt eksempel,
+  og ikke fremhev lav månedskostnad. Nettverk som Adservice/Adtraction gir ferdige, godkjente
+  kreativer. Sjekk vilkårene før publisering.
 
 ## Publisere på Vercel
 > Merk: automatisk deploy via integrasjonen feilet med «You don't have permission to create a

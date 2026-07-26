@@ -14,11 +14,14 @@ let overrides={};
 let PENDING=[];      // parsed-but-not-saved transactions from uploads
 let isPremium=false;
 const PRICE_NOK=59;
-/* ---- affiliate / annonser (rediger lenkene til dine egne) ---- */
+/* ---- annonselenker (affiliate). Bytt url til dine egne fra Adservice/Adtraction/Partner-ads. ----
+   VIKTIG (Forbrukertilsynet): lånereklame må bruke annonsørens GODKJENTE tekst og oppgi
+   effektiv rente + representativt eksempel. Ikke fremhev lav månedskostnad. Lenker merkes «Annonselenke». */
 const AFFILIATE=[
- {tag:'Strøm',title:'Bytt til billigere strøm',desc:'Sammenlign strømavtaler og spar potensielt tusenlapper i året.',cta:'Se avtaler',url:'https://example.com/strom?ref=DITT_ID'},
+ {tag:'Refinansiering',title:'Samle dyre smålån og kredittkort',desc:'Sammenlign refinansiering hos flere banker i én søknad.',cta:'Sammenlign',url:'https://example.com/refinansiering?ref=DITT_ID'},
+ {tag:'Forbrukslån',title:'Sammenlign forbrukslån',desc:'Én søknad – svar fra flere banker. Se effektiv rente hos hver tilbyder.',cta:'Sammenlign',url:'https://example.com/forbrukslan?ref=DITT_ID'},
  {tag:'Forsikring',title:'Betaler du for mye på forsikring?',desc:'Sammenlign pris på bil, hus og innbo på to minutter.',cta:'Sammenlign',url:'https://example.com/forsikring?ref=DITT_ID'},
- {tag:'Sparing',title:'Få mer ut av sparepengene',desc:'Se sparekontoer og fond med bedre rente.',cta:'Utforsk',url:'https://example.com/sparing?ref=DITT_ID'},
+ {tag:'Strøm',title:'Bytt til billigere strøm',desc:'Sammenlign strømavtaler og spar potensielt tusenlapper i året.',cta:'Se avtaler',url:'https://example.com/strom?ref=DITT_ID'},
 ];
 // Valgfri display-annonse (f.eks. Google AdSense-kode). La stå tom ('') for kun affiliate.
 const AD_SLOT_HTML='';
@@ -45,11 +48,13 @@ function renderAds(){
    <span class="pill">${esc(a.tag)}</span>
    <div style="font-weight:600;margin:6px 0 2px">${esc(a.title)}</div>
    <div class="sub" style="margin-bottom:8px">${esc(a.desc)}</div>
+   <div style="font-size:10px;color:var(--mut);margin-bottom:5px;text-transform:uppercase;letter-spacing:.04em">Annonselenke</div>
    <a class="btn aff" data-tag="${esc(a.tag)}" data-url="${esc(a.url)}" style="text-decoration:none;display:inline-block;padding:6px 14px" href="${esc(a.url)}" target="_blank" rel="sponsored noopener nofollow">${esc(a.cta)} ↗</a>
   </div>`).join('');
  const showAd=AD_SLOT_HTML&&cookieConsent()==='accepted';   // display-annonser krever samtykke
  ads.innerHTML=`<div class="card" style="background:none;border:none;padding:0;margin-top:4px">
-   <h3>Annonser &amp; tilbud <span class="sub" style="text-transform:none">· sponset</span></h3>
+   <h3>Annonselenker</h3>
+   <div class="sub" style="margin:-4px 0 8px">Lenkene under er annonser. Trykker du og handler, kan vi få provisjon.</div>
    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">${cards}</div>
    ${showAd?`<div style="margin-top:12px">${AD_SLOT_HTML}</div>`:''}</div>`;
 }
