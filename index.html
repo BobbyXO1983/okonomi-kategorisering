@@ -279,6 +279,7 @@ select.catsel.changed{border-color:var(--acc);color:var(--acc)}
  <div class="tabs">
   <button class="tab on" id="tabOversikt">Oversikt</button>
   <button class="tab" id="tabLev">Leverandører</button>
+  <button class="tab" id="tabRaad">Spareråd</button>
   <button class="tab" id="tabKonto">Kontoer</button>
  </div>
  <div class="months" id="months" style="margin-bottom:12px"></div>
@@ -314,6 +315,15 @@ select.catsel.changed{border-color:var(--acc);color:var(--acc)}
     <th data-k="name">Leverandør</th><th class="num" data-k="cnt">Antall</th><th class="num" data-k="sum">Sum</th><th data-k="eff">Kategori (endre)</th>
    </tr></thead><tbody></tbody></table></div>
   </div>
+ </div>
+
+ <div id="viewRaad" class="hide">
+  <div class="card">
+   <h3 style="margin:0 0 4px">Spareråd basert på dine tall</h3>
+   <div class="sub">Konkrete forslag beregnet ut fra kategoriene i valgt periode. Bytt måned øverst for å se andre perioder.</div>
+  </div>
+  <div id="tipsArea"></div>
+  <div class="sub" style="margin-top:6px">Dette er generelle budsjettforslag – ikke personlig økonomisk rådgivning.</div>
  </div>
 
  <div id="viewKonto" class="hide">

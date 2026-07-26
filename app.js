@@ -367,6 +367,7 @@ function render(){
  document.getElementById('tblTitle').textContent=q?`«${q}» — ${rows.length} kjøp · ${NOK(rs)}`:(curCat?`${curCat} — ${rows.length} kjøp · ${NOK(rs)}`:`Alle utgifter — ${rows.length} kjøp · ${NOK(rs)}`);
  document.querySelector('#tbl tbody').innerHTML=rows.map(t=>`<tr><td>${t.date}</td><td>${esc(t.account)}</td><td class="desc" data-name="${esc(t.description.split(/\s+/).slice(0,2).join(' '))}">${esc(t.description)}</td><td><span class="pill">${esc(eff(t))}</span></td><td class="num neg">${NOK(t.amount)} <span class="del" title="Slett transaksjon" data-fp="${esc(t.fingerprint||'')}">✕</span></td></tr>`).join('');
  if(!document.getElementById('viewLev').classList.contains('hide'))renderLev();
+ if(!document.getElementById('viewRaad').classList.contains('hide'))renderTips();
  renderAds();
 }
 async function deleteOne(fp){
@@ -400,6 +401,45 @@ function renderKonto(){
  const n=TX.filter(t=>t.type==='Intern').length;
  document.getElementById('internNote').textContent=`${n} transaksjoner er markert som interne overføringer og holdt utenfor.`;
 }
+/* ---- spareråd (regelbasert innsikt) ---- */
+function renderTips(){
+ const exp=base().filter(t=>t.type==='Utgift');
+ const inc=base().filter(t=>t.type==='Inntekt');
+ const nM=Math.max(1,new Set(exp.map(t=>t.month)).size);
+ const byCat={};exp.forEach(t=>{const c=eff(t);byCat[c]=(byCat[c]||0)+(-t.amount);});
+ const totalExp=Object.values(byCat).reduce((a,b)=>a+b,0);
+ const totalInc=inc.reduce((a,t)=>a+t.amount,0);
+ const perM=v=>NOK(v/nM)+'/mnd';
+ const tips=[];let potential=0;
+ // bruker mer enn du tjener
+ if(totalInc>0&&totalExp>totalInc){
+  tips.push({t:'Du bruker mer enn du får inn',b:`I denne perioden gikk det ut ${NOK(totalExp-totalInc)} mer enn du fikk inn. De største kategoriene nedenfor er stedene å begynne.`});}
+ // valgfrie utgifter (servering/uteliv/underholdning)
+ const disc=['Restaurant & takeaway','Uteliv & alkohol','Fritid & underholdning'];
+ const discSum=disc.reduce((a,c)=>a+(byCat[c]||0),0);
+ if(discSum>500){const s=discSum*0.3;potential+=s;
+  tips.push({t:'Servering, uteliv og underholdning',b:`Du brukte ${NOK(discSum)} (${perM(discSum)}) her. Kutter du dette med 30 % frigjør du rundt <b>${perM(s)}</b> – uten å endre faste utgifter.`});}
+ // abonnementer
+ const subCats=['Abonnement & medier','Strømmetjenester'];
+ const subNames=new Set(exp.filter(t=>subCats.includes(eff(t))).map(t=>t.description.replace(/\s*\S*\d\S*$/,'').trim().toLowerCase()).filter(Boolean));
+ const subSum=subCats.reduce((a,c)=>a+(byCat[c]||0),0);
+ if(subSum>300){const s=subSum*0.25;potential+=s;
+  tips.push({t:'Abonnementer',b:`Du har rundt ${subNames.size||'flere'} abonnementstjenester til sammen ${perM(subSum)}. Gå gjennom dem i «Leverandører» og si opp det du ikke bruker – ofte kan man kutte 1–2 stk og spare <b>${perM(s)}</b>.`});}
+ // lån/kreditt -> refinansiering
+ if((byCat['Lån & kreditt']||0)>0){
+  tips.push({t:'Renter og kreditt',b:`Du betalte ${NOK(byCat['Lån & kreditt'])} på lån/kreditt i perioden. Har du flere smålån eller kredittkortgjeld, kan refinansiering til én lavere rente kutte rentekostnaden.`});}
+ // dagligvarer stort
+ if((byCat['Dagligvarer']||0)>0&&(byCat['Dagligvarer']/totalExp)>0.28){
+  tips.push({t:'Dagligvarer',b:`Dagligvarer er ${(byCat['Dagligvarer']/totalExp*100).toFixed(0)} % av forbruket (${perM(byCat['Dagligvarer'])}). Handleliste, tilbud og litt mindre bruk av nærbutikk kan monne.`});}
+ // største post
+ const top=Object.entries(byCat).sort((a,b)=>b[1]-a[1])[0];
+ if(top)tips.push({t:'Største utgiftspost',b:`${esc(top[0])} er din største kategori: ${NOK(top[1])} (${(top[1]/totalExp*100).toFixed(0)} % av utgiftene).`});
+ const head=potential>0?`<div class="card" style="border-color:#2e6b4a;background:#12231b">
+   <div class="sub">Anslått mulig innsparing</div>
+   <div style="font-size:26px;font-weight:800;color:#7ee2a8;margin:2px 0">${perM(potential)}</div>
+   <div class="sub">hvis du følger forslagene under. Kun et estimat basert på tallene dine.</div></div>`:'';
+ document.getElementById('tipsArea').innerHTML=head+(tips.length?tips.map(x=>`<div class="card"><div style="font-weight:600;margin-bottom:4px">${esc(x.t)}</div><div style="font-size:13.5px;color:#dbe4ee;line-height:1.5">${x.b}</div></div>`).join(''):'<div class="card"><div class="sub">Last opp litt mer data, så kommer forslagene her.</div></div>');
+}
 /* export */
 function exportCSV(){
  if(!requirePremium())return;
@@ -426,9 +466,10 @@ document.getElementById('qlev').oninput=renderLev;
 document.getElementById('clr').onclick=()=>{curCat='';off.clear();document.getElementById('q').value='';document.getElementById('qd').value='';render();};
 document.getElementById('resetOv').onclick=()=>{if(confirm('Tilbakestille alle kategoriendringer?')){overrides={};saveOv();render();}};
 document.getElementById('ownAdd').onclick=()=>{const v=document.getElementById('ownInput').value.replace(/\D/g,'');if(v){ownAccts.add(v);saveOwn();document.getElementById('ownInput').value='';buildDerived();renderKonto();render();}};
-function switchView(v){['Oversikt','Lev','Konto'].forEach(x=>{document.getElementById('view'+x).classList.toggle('hide',x!==v);document.getElementById('tab'+x).classList.toggle('on',x===v);});if(v==='Lev')renderLev();if(v==='Konto')renderKonto();}
+function switchView(v){['Oversikt','Lev','Raad','Konto'].forEach(x=>{document.getElementById('view'+x).classList.toggle('hide',x!==v);document.getElementById('tab'+x).classList.toggle('on',x===v);});if(v==='Lev')renderLev();if(v==='Konto')renderKonto();if(v==='Raad')renderTips();}
 document.getElementById('tabOversikt').onclick=()=>switchView('Oversikt');
 document.getElementById('tabLev').onclick=()=>switchView('Lev');
+document.getElementById('tabRaad').onclick=()=>switchView('Raad');
 document.getElementById('tabKonto').onclick=()=>switchView('Konto');
 document.querySelectorAll('#tbl thead tr:first-child th').forEach(th=>th.onclick=()=>{const k=th.dataset.k;if(sortK===k)sortDir*=-1;else{sortK=k;sortDir=1;}render();});
 document.querySelectorAll('#levtbl thead th').forEach(th=>th.onclick=()=>{const k=th.dataset.k;if(!k)return;if(levSort===k)levDir*=-1;else{levSort=k;levDir=1;}renderLev();});
