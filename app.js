@@ -351,6 +351,16 @@ function render(){
  const exp=d.filter(t=>t.type==='Utgift'),inc=d.filter(t=>t.type==='Inntekt');
  const sE=exp.reduce((a,t)=>a+t.amount,0),sI=inc.reduce((a,t)=>a+t.amount,0);
  document.getElementById('kpis').innerHTML=kpi('Utgifter',NOK(sE),'neg')+kpi('Inntekter',NOK(sI),'pos')+kpi('Netto',NOK(sI+sE),(sI+sE)>=0?'pos':'neg')+kpi('Antall kjøp',exp.length,'');
+ // sparemål-varsel
+ const ga=document.getElementById('goalAlerts');
+ if(ga){
+  const nMg=Math.max(1,new Set(exp.map(t=>t.month)).size);
+  const cmg={};exp.forEach(t=>{const c=eff(t);cmg[c]=(cmg[c]||0)+(-t.amount);});
+  const breaches=Object.keys(goals).filter(c=>cmg[c]!=null&&cmg[c]/nMg>goals[c]).map(c=>({c,a:cmg[c]/nMg,l:goals[c]}));
+  ga.innerHTML=breaches.length?`<div class="card" style="border-color:#7a3030;background:#25161a">
+    <div style="font-weight:600;color:#ff8a80;margin-bottom:6px">⚠ Over sparemål i ${breaches.length} ${breaches.length===1?'kategori':'kategorier'}</div>
+    ${breaches.map(b=>`<div class="sub" style="color:#f4c6c6">${esc(b.c)}: ${NOK(b.a)}/mnd av mål ${NOK(b.l)}/mnd <b style="color:#ff8a80">(+${NOK(b.a-b.l)}/mnd)</b></div>`).join('')}</div>`:'';
+ }
  const cm={};exp.forEach(t=>{const c=eff(t);cm[c]=(cm[c]||0)+t.amount;});
  const ce=Object.entries(cm).sort((a,b)=>a[1]-b[1]);
  const shown=ce.filter(([c])=>!off.has(c));
