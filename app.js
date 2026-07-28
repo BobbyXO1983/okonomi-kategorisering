@@ -10,6 +10,7 @@ const SUPA_KEY='sb_publishable_1EfmBjgKRF10wAYpGkWgPw_njK9G0EC';
 const sb=window.supabase.createClient(SUPA_URL,SUPA_KEY);
 let user=null;
 let ownAccts=new Set();
+let acctNames={};    // {kontonr: visningsnavn, f.eks. "Lønnskonto"}
 let overrides={};
 let goals={};        // {kategori: månedlig grense i kr}
 let PENDING=[];      // parsed-but-not-saved transactions from uploads
@@ -66,7 +67,7 @@ async function saveOv(){ if(!user)return; await sb.from('category_overrides').de
  const rows=Object.entries(overrides).map(([group_key,category])=>({user_id:user.id,group_key,category}));
  if(rows.length)await sb.from('category_overrides').upsert(rows,{onConflict:'user_id,group_key'}); }
 async function saveOwn(){ if(!user)return; await sb.from('own_accounts').delete().eq('user_id',user.id);
- const rows=[...ownAccts].map(acct=>({user_id:user.id,acct})); if(rows.length)await sb.from('own_accounts').insert(rows); }
+ const rows=[...ownAccts].map(acct=>({user_id:user.id,acct,name:acctNames[acct]||null})); if(rows.length)await sb.from('own_accounts').insert(rows); }
 
 /* ---------- number & date parsing ---------- */
 function num(v){
@@ -287,7 +288,7 @@ async function savePending(){
 }
 async function loadData(){
  // own accounts
- const oa=await sb.from('own_accounts').select('acct');ownAccts=new Set((oa.data||[]).map(r=>r.acct));
+ const oa=await sb.from('own_accounts').select('acct,name');ownAccts=new Set((oa.data||[]).map(r=>r.acct));acctNames={};(oa.data||[]).forEach(r=>{if(r.name)acctNames[r.acct]=r.name;});
  // overrides
  const ov=await sb.from('category_overrides').select('group_key,category');overrides={};(ov.data||[]).forEach(r=>overrides[r.group_key]=r.category);
  const gl=await sb.from('category_goals').select('category,monthly_limit');goals={};(gl.data||[]).forEach(r=>goals[r.category]=Number(r.monthly_limit));
@@ -380,7 +381,7 @@ function render(){
  rows.sort((a,b)=>{let x=sortK==='category'?eff(a):a[sortK],y=sortK==='category'?eff(b):b[sortK];return sortK==='amount'?(x-y)*sortDir:(''+x).localeCompare(''+y)*sortDir;});
  const rs=rows.reduce((a,t)=>a+t.amount,0);
  document.getElementById('tblTitle').textContent=q?`«${q}» — ${rows.length} kjøp · ${NOK(rs)}`:(curCat?`${curCat} — ${rows.length} kjøp · ${NOK(rs)}`:`Alle utgifter — ${rows.length} kjøp · ${NOK(rs)}`);
- document.querySelector('#tbl tbody').innerHTML=rows.map(t=>`<tr><td>${t.date}</td><td>${esc(t.account)}</td><td class="desc" data-name="${esc(t.description.split(/\s+/).slice(0,2).join(' '))}">${esc(t.description)}</td><td><span class="pill">${esc(eff(t))}</span></td><td class="num neg">${NOK(t.amount)} <span class="del" title="Slett transaksjon" data-fp="${esc(t.fingerprint||'')}">✕</span></td></tr>`).join('');
+ document.querySelector('#tbl tbody').innerHTML=rows.map(t=>`<tr><td>${t.date}</td><td>${esc(acctNames[t.account]||t.account)}</td><td class="desc" data-name="${esc(t.description.split(/\s+/).slice(0,2).join(' '))}">${esc(t.description)}</td><td><span class="pill">${esc(eff(t))}</span></td><td class="num neg">${NOK(t.amount)} <span class="del" title="Slett transaksjon" data-fp="${esc(t.fingerprint||'')}">✕</span></td></tr>`).join('');
  if(!document.getElementById('viewLev').classList.contains('hide'))renderLev();
  if(!document.getElementById('viewRaad').classList.contains('hide'))renderTips();
  renderAds();
@@ -411,8 +412,14 @@ function renderLev(){
    const k=s.dataset.k,base=k.split(SEP)[1];if(s.value===base)delete overrides[k];else overrides[k]=s.value;saveOv();render();});
 }
 function renderKonto(){
- document.getElementById('ownChips').innerHTML=[...ownAccts].map(a=>`<span class="chip">${a} <b data-a="${a}">✕</b></span>`).join('')||'<span class="sub">Ingen kontoer registrert ennå.</span>';
- document.querySelectorAll('#ownChips b').forEach(b=>b.onclick=()=>{ownAccts.delete(b.dataset.a);saveOwn();buildDerived();renderKonto();render();});
+ const wrap=document.getElementById('ownChips');const accts=[...ownAccts];
+ wrap.innerHTML=accts.length?accts.map(a=>`<div style="display:flex;gap:10px;align-items:center;margin-bottom:7px;flex-wrap:wrap">
+    <input class="txt acctname" data-a="${esc(a)}" value="${esc(acctNames[a]||'')}" placeholder="Navn (f.eks. Lønnskonto)" style="min-width:200px">
+    <span class="sub" style="font-variant-numeric:tabular-nums">${esc(a)}</span>
+    <b data-del="${esc(a)}" title="Fjern konto" style="cursor:pointer;color:#ff8a80;margin-left:auto">✕</b>
+   </div>`).join(''):'<span class="sub">Ingen kontoer registrert ennå.</span>';
+ wrap.querySelectorAll('.acctname').forEach(inp=>inp.onchange=()=>{const a=inp.dataset.a,v=inp.value.trim();if(v)acctNames[a]=v;else delete acctNames[a];saveOwn();render();});
+ wrap.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{const a=b.dataset.del;ownAccts.delete(a);delete acctNames[a];saveOwn();buildDerived();renderKonto();render();});
  const n=TX.filter(t=>t.type==='Intern').length;
  document.getElementById('internNote').textContent=`${n} transaksjoner er markert som interne overføringer og holdt utenfor.`;
 }
@@ -573,7 +580,7 @@ $('signupBtn').onclick=async()=>{
  if(si.error)return authMsg('Konto opprettet. Logg inn med passordet ditt.');
  afterLogin(si.data.user);
 };
-$('logout').onclick=async()=>{await sb.auth.signOut();user=null;TX=[];ownAccts=new Set();overrides={};goals={};isPremium=false;
+$('logout').onclick=async()=>{await sb.auth.signOut();user=null;TX=[];ownAccts=new Set();acctNames={};overrides={};goals={};isPremium=false;
  $('topbar').classList.add('hide');$('app').classList.add('hide');$('landing').classList.add('hide');$('auth').classList.remove('hide');authMsg('');};
 $('upgradeTop').onclick=showUpsell;
 $('upBuy').onclick=startCheckout;
