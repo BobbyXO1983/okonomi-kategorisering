@@ -467,25 +467,39 @@ function renderTips(){
  const goalRows=topCats.map(([c,v])=>{
    const actual=pm(v);
    if(goals[c]!=null){
-     const lim=goals[c];const pct=Math.min(100,Math.round(actual/Math.max(1,lim)*100));const over=actual>lim;
-     return `<div class="card" style="margin:0 0 8px">
+     const lim=goals[c];const over=actual>lim;const pct=Math.min(100,Math.round(actual/Math.max(1,lim)*100));
+     const mx=Math.max(50,Math.ceil(actual*1.2/50)*50);
+     const red=actual>0?Math.round((actual-lim)/actual*100):0;
+     return `<div class="card goalcard" data-c="${esc(c)}" data-actual="${Math.round(actual)}" style="margin:0 0 8px">
        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
         <div style="font-weight:600">${esc(c)}</div>
-        <div class="sub"><b style="color:${over?'#ff8a80':'#7ee2a8'}">${NOK(actual)}/mnd</b> av mål ${NOK(lim)}/mnd <b data-goal-del="${esc(c)}" title="Fjern mål" style="margin-left:8px;cursor:pointer;color:#ff8a80">✕</b></div>
+        <div class="sub"><b class="gv" style="color:${over?'#ff8a80':'#7ee2a8'}">${NOK(actual)}/mnd</b> av mål <b class="gl">${NOK(lim)}</b>/mnd <b data-goal-del="${esc(c)}" title="Fjern mål" style="margin-left:8px;cursor:pointer;color:#ff8a80">✕</b></div>
        </div>
-       <div style="height:8px;background:#0f1620;border-radius:6px;margin-top:8px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${over?'#ff8a80':'#7ee2a8'}"></div></div>
-       <div class="sub" style="margin-top:5px">${over?`Du ligger ${NOK(actual-lim)}/mnd over målet.`:`Du ligger ${NOK(lim-actual)}/mnd under målet – bra jobba!`}</div>
+       <input type="range" class="gslider" min="0" max="${mx}" step="50" value="${lim}" style="margin:10px 0 2px">
+       <div class="sub gmeta">Dra for å justere · ${red>=0?'−'+red+'% vs snitt':'over snitt'} · ${over?'over målet nå':'innenfor målet'}</div>
+       <div style="height:8px;background:#0f1620;border-radius:6px;margin-top:6px;overflow:hidden"><div class="gbar" style="height:100%;width:${pct}%;background:${over?'#ff8a80':'#7ee2a8'}"></div></div>
      </div>`;
    }
    return `<div class="card" style="margin:0 0 8px;display:flex;justify-content:space-between;align-items:center;gap:8px">
      <div><div style="font-weight:600">${esc(c)}</div><div class="sub">${NOK(actual)}/mnd i snitt</div></div>
-     <button class="clr goal-set" data-goal-cat="${esc(c)}" data-goal-val="${Math.round(actual*0.7/50)*50}">Sett mål −30 %</button></div>`;
+     <button class="clr goal-set" data-goal-cat="${esc(c)}" data-goal-val="${Math.round(actual*0.7/50)*50}">Sett mål</button></div>`;
  }).join('');
  area.innerHTML=head
    +(tips.length?tips.map(x=>`<div class="card"><div style="font-weight:600;margin-bottom:4px">${esc(x.t)}</div><div style="font-size:13.5px;color:#dbe4ee;line-height:1.5">${x.b}</div></div>`).join(''):'')
-   +`<div class="card" style="background:none;border:none;padding:0;margin-top:2px"><h3>Sett sparemål per kategori</h3><div class="sub" style="margin:-4px 0 8px">Legg en månedlig grense per kategori og følg fremdriften hver måned.</div>${goalRows}</div>`;
+   +`<div class="card" style="background:none;border:none;padding:0;margin-top:2px"><h3>Sett sparemål per kategori</h3><div class="sub" style="margin:-4px 0 8px">Sett en månedlig grense og dra i slideren for å justere. Følg fremdriften hver måned.</div>${goalRows}</div>`;
  area.querySelectorAll('.goal-set').forEach(b=>b.onclick=()=>{goals[b.dataset.goalCat]=Number(b.dataset.goalVal);saveGoals();renderTips();});
- area.querySelectorAll('[data-goal-del]').forEach(b=>b.onclick=()=>{delete goals[b.dataset.goalDel];saveGoals();renderTips();});
+ area.querySelectorAll('[data-goal-del]').forEach(b=>b.onclick=(e)=>{e.stopPropagation();delete goals[b.dataset.goalDel];saveGoals();renderTips();});
+ area.querySelectorAll('.goalcard').forEach(card=>{
+   const c=card.dataset.c,actual=Number(card.dataset.actual),sl=card.querySelector('.gslider');
+   sl.oninput=()=>{const val=Number(sl.value);goals[c]=val;const over=actual>val;
+     card.querySelector('.gl').textContent=NOK(val);
+     card.querySelector('.gv').style.color=over?'#ff8a80':'#7ee2a8';
+     const p=Math.min(100,Math.round(actual/Math.max(1,val)*100));const bar=card.querySelector('.gbar');
+     bar.style.width=p+'%';bar.style.background=over?'#ff8a80':'#7ee2a8';
+     const r=actual>0?Math.round((actual-val)/actual*100):0;
+     card.querySelector('.gmeta').textContent=`Dra for å justere · ${r>=0?'−'+r+'% vs snitt':'over snitt'} · ${over?'over målet nå':'innenfor målet'}`;};
+   sl.onchange=()=>saveGoals();
+ });
 }
 /* export */
 function exportCSV(){
