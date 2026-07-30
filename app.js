@@ -13,10 +13,12 @@ let ownAccts=new Set();
 let acctNames={};    // {kontonr: visningsnavn, f.eks. "Lønnskonto"}
 let overrides={};
 let goals={};        // {kategori: månedlig grense i kr}
+let networth={assets:[],liabilities:[]};  // eiendeler & gjeld (manuelt)
 let PENDING=[];      // parsed-but-not-saved transactions from uploads
 async function saveGoals(){ if(!user)return; await sb.from('category_goals').delete().eq('user_id',user.id);
  const rows=Object.entries(goals).map(([category,monthly_limit])=>({user_id:user.id,category,monthly_limit}));
  if(rows.length)await sb.from('category_goals').upsert(rows,{onConflict:'user_id,category'}); }
+async function saveNetworth(){ if(!user)return; await sb.from('networth').upsert({user_id:user.id,data:networth,updated_at:new Date().toISOString()},{onConflict:'user_id'}); }
 let isPremium=false;
 const PRICE_NOK=59;
 /* ---- annonselenker (affiliate). Bytt url til dine egne fra Adservice/Adtraction/Partner-ads. ----
@@ -257,7 +259,7 @@ function renderMapArea(){
 }
 
 /* ---------- build & show app ---------- */
-let curMonth='',curCat='',off=new Set(),sortK='amount',sortDir=1,pie,levSort='sum',levDir=1,monthChart=null;
+let curMonth='',curCat='',off=new Set(),sortK='amount',sortDir=1,pie,levSort='sum',levDir=1,monthChart=null,nwChart=null,nwYears=5;
 let months=[],COLOR={},CATS=[];
 function buildDerived(){
  recategorize();
@@ -292,6 +294,7 @@ async function loadData(){
  // overrides
  const ov=await sb.from('category_overrides').select('group_key,category');overrides={};(ov.data||[]).forEach(r=>overrides[r.group_key]=r.category);
  const gl=await sb.from('category_goals').select('category,monthly_limit');goals={};(gl.data||[]).forEach(r=>goals[r.category]=Number(r.monthly_limit));
+ const nw=await sb.from('networth').select('data').maybeSingle();const nd=nw.data&&nw.data.data;networth={assets:(nd&&nd.assets)||[],liabilities:(nd&&nd.liabilities)||[]};
  // transactions (paged)
  TX=[];let from=0;const page=1000;
  while(true){const {data,error}=await sb.from('transactions').select('tx_date,account,description,amount,counterpart,mcat,fingerprint').order('tx_date').range(from,from+page-1);
@@ -556,6 +559,56 @@ function renderTips(){
    sl.onchange=()=>saveGoals();
  });
 }
+/* ---- formue / nettoformue ---- */
+const ASSET_CATS={'Bolig':3,'Hytte':2,'Bil':-12,'Kjøretøy':-10,'Båt':-8,'Aksjer/fond':5,'Sparekonto':2,'Kontanter':0,'Annet':0};
+const LIAB_CATS=['Boliglån','Billån','Studielån','Forbrukslån','Kredittkort','Annet'];
+function nwMonthlySavings(){const inc=TX.filter(t=>t.type==='Inntekt').reduce((s,t)=>s+t.amount,0);const exp=TX.filter(t=>t.type==='Utgift').reduce((s,t)=>s+t.amount,0);const nm=Math.max(1,new Set(TX.map(t=>t.month)).size);return (inc+exp)/nm;}
+function nwProject(years){
+ const ms=nwMonthlySavings();
+ let A=(networth.assets||[]).map(x=>({v:+x.value||0,r:(+x.rate||0)/100}));
+ let L=(networth.liabilities||[]).map(x=>({b:+x.balance||0,r:(+x.rate||0)/100,p:+x.monthly||0}));
+ let cash=0;const pts=[A.reduce((s,x)=>s+x.v,0)-L.reduce((s,x)=>s+x.b,0)];
+ for(let m=1;m<=years*12;m++){
+   cash+=ms;
+   A.forEach(x=>x.v*=(1+x.r/12));
+   L.forEach(x=>{const it=x.b*x.r/12;const pr=Math.max(0,Math.min(x.b,x.p-it));x.b=Math.max(0,x.b-pr);});
+   if(m%12===0)pts.push(cash+A.reduce((s,x)=>s+x.v,0)-L.reduce((s,x)=>s+x.b,0));
+ }
+ return pts;
+}
+function renderNetworth(){
+ const A=networth.assets||[],L=networth.liabilities||[];
+ const sumA=A.reduce((s,x)=>s+(+x.value||0),0),sumL=L.reduce((s,x)=>s+(+x.balance||0),0),net=sumA-sumL,ms=nwMonthlySavings();
+ document.getElementById('nwKpis').innerHTML=kpi('Eiendeler',NOK(sumA),'pos')+kpi('Gjeld',NOK(sumL),'neg')+kpi('Nettoformue',NOK(net),net>=0?'pos':'neg')+kpi('Sparing/mnd',NOK(ms),ms>=0?'pos':'neg');
+ const aopts=c=>Object.keys(ASSET_CATS).map(o=>`<option ${o===c?'selected':''}>${o}</option>`).join('');
+ document.getElementById('assetList').innerHTML=A.length?A.map((x,i)=>`<div style="display:grid;grid-template-columns:1fr 110px 92px 66px 18px;gap:6px;align-items:center;margin-bottom:6px">
+    <input class="txt nwf" data-l="assets" data-i="${i}" data-f="name" value="${esc(x.name||'')}" placeholder="Navn">
+    <select class="nwf" data-l="assets" data-i="${i}" data-f="cat">${aopts(x.cat)}</select>
+    <input class="txt nwf" data-l="assets" data-i="${i}" data-f="value" value="${esc(x.value??'')}" placeholder="Verdi" inputmode="numeric">
+    <input class="txt nwf" data-l="assets" data-i="${i}" data-f="rate" value="${esc(x.rate??'')}" placeholder="%/år" inputmode="numeric" title="Årlig verdiendring i %">
+    <b class="nwdel" data-l="assets" data-i="${i}" title="Fjern" style="cursor:pointer;color:#ff8a80">✕</b></div>`).join(''):'<div class="sub">Ingen eiendeler lagt inn ennå.</div>';
+ const lopts=c=>LIAB_CATS.map(o=>`<option ${o===c?'selected':''}>${o}</option>`).join('');
+ document.getElementById('liabList').innerHTML=L.length?L.map((x,i)=>`<div style="display:grid;grid-template-columns:1fr 96px 92px 56px 66px 18px;gap:6px;align-items:center;margin-bottom:6px">
+    <input class="txt nwf" data-l="liabilities" data-i="${i}" data-f="name" value="${esc(x.name||'')}" placeholder="Navn">
+    <select class="nwf" data-l="liabilities" data-i="${i}" data-f="cat">${lopts(x.cat)}</select>
+    <input class="txt nwf" data-l="liabilities" data-i="${i}" data-f="balance" value="${esc(x.balance??'')}" placeholder="Saldo" inputmode="numeric">
+    <input class="txt nwf" data-l="liabilities" data-i="${i}" data-f="rate" value="${esc(x.rate??'')}" placeholder="rente%" inputmode="numeric">
+    <input class="txt nwf" data-l="liabilities" data-i="${i}" data-f="monthly" value="${esc(x.monthly??'')}" placeholder="kr/mnd" inputmode="numeric" title="Månedlig nedbetaling">
+    <b class="nwdel" data-l="liabilities" data-i="${i}" title="Fjern" style="cursor:pointer;color:#ff8a80">✕</b></div>`).join(''):'<div class="sub">Ingen gjeld lagt inn ennå.</div>';
+ document.querySelectorAll('.nwf').forEach(el=>el.onchange=()=>{const lst=el.dataset.l,i=+el.dataset.i,f=el.dataset.f;let v=el.value;
+   if(['value','rate','balance','monthly'].includes(f))v=v===''?'':parseFloat((''+v).replace(/[^0-9.,\-]/g,'').replace(',','.'));
+   networth[lst][i][f]=v;saveNetworth();renderNetworth();});
+ document.querySelectorAll('.nwdel').forEach(b=>b.onclick=()=>{networth[b.dataset.l].splice(+b.dataset.i,1);saveNetworth();renderNetworth();});
+ const yb=document.getElementById('nwYears');yb.innerHTML=[1,3,5,10].map(y=>`<button class="mbtn ${y===nwYears?'on':''}" data-y="${y}">${y} år</button>`).join('');
+ yb.querySelectorAll('button').forEach(b=>b.onclick=()=>{nwYears=+b.dataset.y;renderNetworth();});
+ const pts=nwProject(nwYears),labels=pts.map((_,i)=>i===0?'Nå':'+'+i+' år');
+ if(nwChart)nwChart.destroy();
+ nwChart=new Chart(document.getElementById('nwChart'),{type:'line',data:{labels,datasets:[{data:pts.map(Math.round),borderColor:'#4f9cf9',backgroundColor:'rgba(79,156,249,.15)',fill:true,tension:.25,pointRadius:3}]},
+  options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>NOK(c.raw)}}},
+   scales:{x:{ticks:{color:'#8ba0b6'},grid:{display:false}},y:{ticks:{color:'#8ba0b6',callback:v=>Math.round(v/1000)+'k'},grid:{color:'#243447'}}}}});
+ const end=pts[pts.length-1],diff=end-pts[0];
+ document.getElementById('nwProjNote').innerHTML=`Om ${nwYears} år: <b style="color:${end>=pts[0]?'#7ee2a8':'#ff8a80'}">${NOK(end)}</b> (${diff>=0?'+':'−'}${NOK(Math.abs(diff))} fra i dag, med ${NOK(ms)}/mnd i sparing).`;
+}
 /* export */
 function exportCSV(){
  if(!requirePremium())return;
@@ -582,11 +635,14 @@ document.getElementById('qlev').oninput=renderLev;
 document.getElementById('clr').onclick=()=>{curCat='';off.clear();document.getElementById('q').value='';document.getElementById('qd').value='';render();};
 document.getElementById('resetOv').onclick=()=>{if(confirm('Tilbakestille alle kategoriendringer?')){overrides={};saveOv();render();}};
 document.getElementById('ownAdd').onclick=()=>{const v=document.getElementById('ownInput').value.replace(/\D/g,'');if(v){ownAccts.add(v);saveOwn();document.getElementById('ownInput').value='';buildDerived();renderKonto();render();}};
-function switchView(v){['Oversikt','Lev','Raad','Konto'].forEach(x=>{document.getElementById('view'+x).classList.toggle('hide',x!==v);document.getElementById('tab'+x).classList.toggle('on',x===v);});if(v==='Lev')renderLev();if(v==='Konto')renderKonto();if(v==='Raad')renderTips();}
+function switchView(v){['Oversikt','Lev','Raad','Formue','Konto'].forEach(x=>{document.getElementById('view'+x).classList.toggle('hide',x!==v);document.getElementById('tab'+x).classList.toggle('on',x===v);});if(v==='Lev')renderLev();if(v==='Konto')renderKonto();if(v==='Raad')renderTips();if(v==='Formue')renderNetworth();}
 document.getElementById('tabOversikt').onclick=()=>switchView('Oversikt');
 document.getElementById('tabLev').onclick=()=>switchView('Lev');
 document.getElementById('tabRaad').onclick=()=>switchView('Raad');
+document.getElementById('tabFormue').onclick=()=>switchView('Formue');
 document.getElementById('tabKonto').onclick=()=>switchView('Konto');
+document.getElementById('addAsset').onclick=()=>{networth.assets.push({name:'',cat:'Bolig',value:'',rate:ASSET_CATS['Bolig']});saveNetworth();renderNetworth();};
+document.getElementById('addLiab').onclick=()=>{networth.liabilities.push({name:'',cat:'Boliglån',balance:'',rate:5,monthly:''});saveNetworth();renderNetworth();};
 document.querySelectorAll('#tbl thead tr:first-child th').forEach(th=>th.onclick=()=>{const k=th.dataset.k;if(sortK===k)sortDir*=-1;else{sortK=k;sortDir=1;}render();});
 document.querySelectorAll('#levtbl thead th').forEach(th=>th.onclick=()=>{const k=th.dataset.k;if(!k)return;if(levSort===k)levDir*=-1;else{levSort=k;levDir=1;}renderLev();});
 document.querySelector('#tbl tbody').addEventListener('click',e=>{
@@ -628,7 +684,7 @@ $('signupBtn').onclick=async()=>{
  if(si.error)return authMsg('Konto opprettet. Logg inn med passordet ditt.');
  afterLogin(si.data.user);
 };
-$('logout').onclick=async()=>{await sb.auth.signOut();user=null;TX=[];ownAccts=new Set();acctNames={};overrides={};goals={};isPremium=false;
+$('logout').onclick=async()=>{await sb.auth.signOut();user=null;TX=[];ownAccts=new Set();acctNames={};overrides={};goals={};networth={assets:[],liabilities:[]};isPremium=false;
  $('topbar').classList.add('hide');$('app').classList.add('hide');$('landing').classList.add('hide');$('auth').classList.remove('hide');authMsg('');};
 $('upgradeTop').onclick=showUpsell;
 $('upBuy').onclick=startCheckout;
