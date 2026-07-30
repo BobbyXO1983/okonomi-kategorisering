@@ -257,7 +257,7 @@ function renderMapArea(){
 }
 
 /* ---------- build & show app ---------- */
-let curMonth='',curCat='',off=new Set(),sortK='amount',sortDir=1,pie,levSort='sum',levDir=1;
+let curMonth='',curCat='',off=new Set(),sortK='amount',sortDir=1,pie,levSort='sum',levDir=1,monthChart=null;
 let months=[],COLOR={},CATS=[];
 function buildDerived(){
  recategorize();
@@ -345,6 +345,49 @@ function base(){
 function esc(s){return (''+(s||'')).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 function kpi(l,v,c){return `<div class="kpi"><div class="l">${l}</div><div class="v ${c}">${v}</div></div>`}
 
+function renderMonthTrend(){
+ const el=document.getElementById('monthChart');if(!el)return;
+ const bm={};TX.filter(t=>t.type==='Utgift').forEach(t=>bm[t.month]=(bm[t.month]||0)+(-t.amount));
+ const ms=Object.keys(bm).sort();
+ if(monthChart)monthChart.destroy();
+ monthChart=new Chart(el,{type:'bar',data:{labels:ms,datasets:[{data:ms.map(m=>Math.round(bm[m])),backgroundColor:ms.map(m=>m===curMonth?'#4f9cf9':'#33608f'),borderRadius:4}]},
+  options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>NOK(c.raw)}}},
+   scales:{x:{ticks:{color:'#8ba0b6',font:{size:10}},grid:{display:false}},y:{ticks:{color:'#8ba0b6',callback:v=>Math.round(v/1000)+'k'},grid:{color:'#243447'}}},
+   onClick:(e,a)=>{if(a.length){const m=ms[a[0].index];curMonth=(curMonth===m?'':m);render();}}}});
+}
+function renderMoM(){
+ const el=document.getElementById('momCard');if(!el)return;
+ const ms=[...new Set(TX.filter(t=>t.type==='Utgift').map(t=>t.month))].sort();
+ const target=curMonth||ms[ms.length-1];const idx=ms.indexOf(target);const prev=idx>0?ms[idx-1]:null;
+ if(!prev){el.innerHTML=`<h3>Endring fra forrige måned</h3><div class="sub">Trenger minst to måneder med data.</div>`;return;}
+ const sum=m=>{const o={};TX.filter(t=>t.type==='Utgift'&&t.month===m).forEach(t=>{const c=eff(t);o[c]=(o[c]||0)+(-t.amount);});return o;};
+ const a=sum(target),b=sum(prev);
+ const cats=[...new Set([...Object.keys(a),...Object.keys(b)])];
+ const rows=cats.map(c=>({c,then:b[c]||0,d:(a[c]||0)-(b[c]||0)})).filter(r=>Math.abs(r.d)>=100).sort((x,y)=>Math.abs(y.d)-Math.abs(x.d)).slice(0,6);
+ const tot=Object.values(a).reduce((x,y)=>x+y,0)-Object.values(b).reduce((x,y)=>x+y,0);
+ el.innerHTML=`<h3>Endring: ${esc(target)} vs ${esc(prev)}</h3>
+  <div class="sub" style="margin:-4px 0 8px">Totalt <b style="color:${tot>0?'#ff8a80':'#7ee2a8'}">${tot>=0?'+':'−'}${NOK(Math.abs(tot))}</b> ${tot>0?'mer':'mindre'} enn forrige måned.</div>
+  ${rows.length?rows.map(r=>{const up=r.d>0;const pct=r.then>0?Math.round(r.d/r.then*100):100;
+    return `<div style="display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-top:1px solid var(--line)"><span>${esc(r.c)}</span><span class="sub"><b style="color:${up?'#ff8a80':'#7ee2a8'}">${up?'▲':'▼'} ${NOK(Math.abs(r.d))}</b> ${r.then>0?'('+(up?'+':'−')+Math.abs(pct)+'%)':'(ny)'}</span></div>`;}).join(''):'<div class="sub">Ingen store endringer.</div>'}`;
+}
+function detectSubs(){
+ const norm=d=>d.toLowerCase().replace(/\s*\S*\d\S*$/,'').replace(/[^a-zæøå ]/g,'').trim();
+ const allMonths=[...new Set(TX.map(t=>t.month))].sort();
+ const g={};
+ TX.filter(t=>t.type==='Utgift').forEach(t=>{const k=norm(t.description)||t.description.toLowerCase();
+   (g[k]=g[k]||{name:t.description,months:new Set(),amts:[]});g[k].months.add(t.month);g[k].amts.push({a:-t.amount,d:t.date});});
+ const subs=[];
+ for(const k in g){const v=g[k];if(v.months.size>=3){
+   v.amts.sort((x,y)=>x.d.localeCompare(y.d));
+   const arr=v.amts.map(x=>x.a).slice().sort((a,b)=>a-b);const med=arr[Math.floor(arr.length/2)];
+   if(med<30)continue;
+   const firstMonth=[...v.months].sort()[0];
+   subs.push({name:v.name,perMonth:med,n:v.months.size,last:v.amts[v.amts.length-1].a,
+     startedRecently:allMonths.indexOf(firstMonth)>=allMonths.length-2,
+     increased:v.amts[v.amts.length-1].a>v.amts[0].a*1.15});
+ }}
+ return subs.sort((a,b)=>b.perMonth-a.perMonth);
+}
 function render(){
  const mb=document.getElementById('months');
  [...mb.children].forEach((b,i)=>b.classList.toggle('on',(i===0&&!curMonth)||b.textContent===curMonth));
@@ -384,6 +427,7 @@ function render(){
  document.querySelector('#tbl tbody').innerHTML=rows.map(t=>`<tr><td>${t.date}</td><td>${esc(acctNames[t.account]||t.account)}</td><td class="desc" data-name="${esc(t.description.split(/\s+/).slice(0,2).join(' '))}">${esc(t.description)}</td><td><span class="pill">${esc(eff(t))}</span></td><td class="num neg">${NOK(t.amount)} <span class="del" title="Slett transaksjon" data-fp="${esc(t.fingerprint||'')}">✕</span></td></tr>`).join('');
  if(!document.getElementById('viewLev').classList.contains('hide'))renderLev();
  if(!document.getElementById('viewRaad').classList.contains('hide'))renderTips();
+ renderMonthTrend();renderMoM();
  renderAds();
 }
 async function deleteOne(fp){
@@ -491,8 +535,12 @@ function renderTips(){
      <div><div style="font-weight:600">${esc(c)}</div><div class="sub">${NOK(actual)}/mnd i snitt</div></div>
      <button class="clr goal-set" data-goal-cat="${esc(c)}" data-goal-val="${Math.round(actual*0.7/50)*50}">Sett mål</button></div>`;
  }).join('');
+ const subs=detectSubs();
+ const subsHtml=`<div class="card" style="background:none;border:none;padding:0;margin-top:2px"><h3>Abonnementer og faste trekk</h3><div class="sub" style="margin:-4px 0 8px">Leverandører som trekker deg jevnlig. Merket «ny» hvis nylig startet, «økt» hvis beløpet har steget.</div>`
+   +(subs.length?subs.slice(0,12).map(s=>`<div class="card" style="margin:0 0 6px;display:flex;justify-content:space-between;align-items:center;gap:8px"><div><div style="font-weight:600">${esc(s.name)} ${s.startedRecently?'<span class="pill" style="background:#1b3b2a;color:#7ee2a8">ny</span>':''}${s.increased?' <span class="pill" style="background:#3b2a1b;color:#ffd166">økt</span>':''}</div><div class="sub">${s.n} måneder · sist ${NOK(s.last)}</div></div><div style="font-weight:700;white-space:nowrap">${NOK(s.perMonth)}/mnd</div></div>`).join(''):'<div class="sub">Fant ingen faste trekk ennå.</div>')+`</div>`;
  area.innerHTML=head
    +(tips.length?tips.map(x=>`<div class="card"><div style="font-weight:600;margin-bottom:4px">${esc(x.t)}</div><div style="font-size:13.5px;color:#dbe4ee;line-height:1.5">${x.b}</div></div>`).join(''):'')
+   +subsHtml
    +`<div class="card" style="background:none;border:none;padding:0;margin-top:2px"><h3>Sett sparemål per kategori</h3><div class="sub" style="margin:-4px 0 8px">Sett en månedlig grense og dra i slideren for å justere. Følg fremdriften hver måned.</div>${goalRows}</div>`;
  area.querySelectorAll('.goal-set').forEach(b=>b.onclick=()=>{goals[b.dataset.goalCat]=Number(b.dataset.goalVal);saveGoals();renderTips();});
  area.querySelectorAll('[data-goal-del]').forEach(b=>b.onclick=(e)=>{e.stopPropagation();delete goals[b.dataset.goalDel];saveGoals();renderTips();});
