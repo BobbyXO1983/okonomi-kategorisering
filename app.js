@@ -612,23 +612,23 @@ function renderNetworth(){
  const sumA=A.reduce((s,x)=>s+(+x.value||0),0),sumL=L.reduce((s,x)=>s+(+x.balance||0),0),net=sumA-sumL,ms=nwMonthlySavings();
  document.getElementById('nwKpis').innerHTML=kpi('Eiendeler',NOK(sumA),'pos')+kpi('Gjeld',NOK(sumL),'neg')+kpi('Nettoformue',NOK(net),net>=0?'pos':'neg')+kpi('Sparing/mnd',NOK(ms),ms>=0?'pos':'neg');
  const aopts=c=>Object.keys(ASSET_CATS).map(o=>`<option ${o===c?'selected':''}>${o}</option>`).join('');
- document.getElementById('assetList').innerHTML=A.length?A.map((x,i)=>`<div style="display:grid;grid-template-columns:1fr 110px 92px 66px 18px;gap:6px;align-items:center;margin-bottom:6px">
+ document.getElementById('assetList').innerHTML='<div class="nwhead" style="grid-template-columns:1fr 110px 92px 66px 18px"><div>Navn</div><div>Kategori</div><div>Verdi (kr)</div><div>%/år</div><div></div></div>'+(A.length?A.map((x,i)=>`<div style="display:grid;grid-template-columns:1fr 110px 92px 66px 18px;gap:6px;align-items:center;margin-bottom:6px">
     <input class="txt nwf" data-l="assets" data-i="${i}" data-f="name" value="${esc(x.name||'')}" placeholder="Navn">
     <select class="nwf" data-l="assets" data-i="${i}" data-f="cat">${aopts(x.cat)}</select>
     <input class="txt nwf" data-l="assets" data-i="${i}" data-f="value" value="${esc(x.value??'')}" placeholder="Verdi" inputmode="numeric">
     <input class="txt nwf" data-l="assets" data-i="${i}" data-f="rate" value="${esc(x.rate??'')}" placeholder="%/år" inputmode="numeric" title="Årlig verdiendring i %">
-    <b class="nwdel" data-l="assets" data-i="${i}" title="Fjern" style="cursor:pointer;color:#ff8a80">✕</b></div>`).join(''):'<div class="sub">Ingen eiendeler lagt inn ennå.</div>';
+    <b class="nwdel" data-l="assets" data-i="${i}" title="Fjern" style="cursor:pointer;color:#ff8a80">✕</b></div>`).join(''):'<div class="sub">Ingen eiendeler lagt inn ennå.</div>');
  const asugg=nwAssetSuggestions();
  if(asugg.length)document.getElementById('assetList').innerHTML+=`<div class="sub" style="margin:12px 0 4px">Foreslått fra bankdataene – trykk for å legge til (fyll inn verdi etterpå):</div>`
    +asugg.map(s=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px"><div><b>${esc(s.name)}</b> <span class="pill">${s.cat}</span></div><button class="clr nwadd" data-kind="assets" data-name="${esc(s.name)}" data-cat="${s.cat}">+ Legg til</button></div>`).join('');
  const lopts=c=>LIAB_CATS.map(o=>`<option ${o===c?'selected':''}>${o}</option>`).join('');
- document.getElementById('liabList').innerHTML=L.length?L.map((x,i)=>`<div style="display:grid;grid-template-columns:1fr 96px 92px 56px 66px 18px;gap:6px;align-items:center;margin-bottom:6px">
+ document.getElementById('liabList').innerHTML='<div class="nwhead" style="grid-template-columns:1fr 96px 92px 56px 66px 18px"><div>Navn</div><div>Kategori</div><div>Saldo (kr)</div><div>Rente %</div><div>Kr/mnd</div><div></div></div>'+(L.length?L.map((x,i)=>`<div style="display:grid;grid-template-columns:1fr 96px 92px 56px 66px 18px;gap:6px;align-items:center;margin-bottom:6px">
     <input class="txt nwf" data-l="liabilities" data-i="${i}" data-f="name" value="${esc(x.name||'')}" placeholder="Navn">
     <select class="nwf" data-l="liabilities" data-i="${i}" data-f="cat">${lopts(x.cat)}</select>
     <input class="txt nwf" data-l="liabilities" data-i="${i}" data-f="balance" value="${esc(x.balance??'')}" placeholder="Saldo" inputmode="numeric">
     <input class="txt nwf" data-l="liabilities" data-i="${i}" data-f="rate" value="${esc(x.rate??'')}" placeholder="rente%" inputmode="numeric">
     <input class="txt nwf" data-l="liabilities" data-i="${i}" data-f="monthly" value="${esc(x.monthly??'')}" placeholder="kr/mnd" inputmode="numeric" title="Månedlig nedbetaling">
-    <b class="nwdel" data-l="liabilities" data-i="${i}" title="Fjern" style="cursor:pointer;color:#ff8a80">✕</b></div>`).join(''):'<div class="sub">Ingen gjeld lagt inn ennå.</div>';
+    <b class="nwdel" data-l="liabilities" data-i="${i}" title="Fjern" style="cursor:pointer;color:#ff8a80">✕</b></div>`).join(''):'<div class="sub">Ingen gjeld lagt inn ennå.</div>');
  const sugg=nwDebtSuggestions();
  if(sugg.length)document.getElementById('liabList').innerHTML+=`<div class="sub" style="margin:12px 0 4px">Foreslått fra bankdataene – trykk for å legge til (fyll inn saldo/rente etterpå):</div>`
    +sugg.map(s=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px"><div><b>${esc(s.name)}</b> <span class="pill">${s.cat}</span> <span class="sub">~${NOK(s.monthly)}/mnd</span></div><button class="clr nwadd" data-kind="liabilities" data-name="${esc(s.name)}" data-cat="${s.cat}" data-monthly="${s.monthly}">+ Legg til</button></div>`).join('');
