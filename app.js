@@ -601,11 +601,11 @@ function nwAssetSuggestions(){
    const k=norm(t.description)||t.description.toLowerCase();
    (g[k]=g[k]||{name:t.description,months:new Set(),tot:0}); g[k].months.add(t.month); g[k].tot+=-t.amount;});
  const out=[];
- for(const k in g){const v=g[k];if(v.months.size>=3&&v.tot>=1000){const d=v.name.toLowerCase();
+ for(const k in g){const v=g[k];if((v.months.size>=3&&v.tot>=1000)||v.tot>=20000){const d=v.name.toLowerCase();
    const cat=savRe.test(d)?'Sparekonto':'Aksjer/fond';
-   out.push({name:v.name,cat});}}
+   out.push({name:v.name,cat,tot:v.tot});}}
  const have=new Set((networth.assets||[]).map(x=>(x.name||'').toLowerCase()));
- return out.filter(s=>!have.has(s.name.toLowerCase()));
+ return out.filter(s=>!have.has(s.name.toLowerCase())).sort((a,b)=>b.tot-a.tot).slice(0,6);
 }
 function renderNetworth(){
  const A=networth.assets||[],L=networth.liabilities||[];
