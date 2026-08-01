@@ -576,6 +576,22 @@ function nwProject(years){
  }
  return pts;
 }
+const LIAB_RATE={'Boliglån':5,'Billån':6,'Studielån':4,'Forbrukslån':12,'Kredittkort':20,'Annet':5};
+function nwDebtSuggestions(){
+ const norm=d=>d.toLowerCase().replace(/\s*\S*\d\S*$/,'').replace(/[^a-zæøå ]/g,'').trim();
+ const debtRe=/santander|svea|instabank|bank ?norwegian|l(å|a)nekassen|studiel(å|a)n|boligl(å|a)n|bill(å|a)n|kreditt|\bl(å|a)n\b/;
+ const g={};
+ TX.filter(t=>t.type==='Utgift'&&(t.baseCat==='Lån & kreditt'||debtRe.test(t.description.toLowerCase())||/^til:?\s*325083/.test(t.description.toLowerCase()))).forEach(t=>{
+   const k=norm(t.description)||t.description.toLowerCase();
+   (g[k]=g[k]||{name:t.description,months:new Set(),amts:[]});g[k].months.add(t.month);g[k].amts.push(-t.amount);});
+ const out=[];
+ for(const k in g){const v=g[k];if(v.months.size>=3){const arr=v.amts.slice().sort((a,b)=>a-b);const med=arr[Math.floor(arr.length/2)];if(med<200)continue;
+   const d=v.name.toLowerCase();let cat='Forbrukslån';
+   if(/l(å|a)nekassen|studiel(å|a)n/.test(d))cat='Studielån';else if(/santander|bil/.test(d))cat='Billån';else if(/^til:?\s*325083|boligl(å|a)n/.test(d)||med>10000)cat='Boliglån';
+   out.push({name:v.name,monthly:Math.round(med),cat});}}
+ const have=new Set((networth.liabilities||[]).map(x=>(x.name||'').toLowerCase()));
+ return out.filter(s=>!have.has(s.name.toLowerCase())).sort((a,b)=>b.monthly-a.monthly);
+}
 function renderNetworth(){
  const A=networth.assets||[],L=networth.liabilities||[];
  const sumA=A.reduce((s,x)=>s+(+x.value||0),0),sumL=L.reduce((s,x)=>s+(+x.balance||0),0),net=sumA-sumL,ms=nwMonthlySavings();
@@ -595,6 +611,10 @@ function renderNetworth(){
     <input class="txt nwf" data-l="liabilities" data-i="${i}" data-f="rate" value="${esc(x.rate??'')}" placeholder="rente%" inputmode="numeric">
     <input class="txt nwf" data-l="liabilities" data-i="${i}" data-f="monthly" value="${esc(x.monthly??'')}" placeholder="kr/mnd" inputmode="numeric" title="Månedlig nedbetaling">
     <b class="nwdel" data-l="liabilities" data-i="${i}" title="Fjern" style="cursor:pointer;color:#ff8a80">✕</b></div>`).join(''):'<div class="sub">Ingen gjeld lagt inn ennå.</div>';
+ const sugg=nwDebtSuggestions();
+ if(sugg.length)document.getElementById('liabList').innerHTML+=`<div class="sub" style="margin:12px 0 4px">Foreslått fra bankdataene – trykk for å legge til (fyll inn saldo/rente etterpå):</div>`
+   +sugg.map(s=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px"><div><b>${esc(s.name)}</b> <span class="pill">${s.cat}</span> <span class="sub">~${NOK(s.monthly)}/mnd</span></div><button class="clr nwadd" data-name="${esc(s.name)}" data-cat="${s.cat}" data-monthly="${s.monthly}">+ Legg til</button></div>`).join('');
+ document.querySelectorAll('.nwadd').forEach(b=>b.onclick=()=>{networth.liabilities.push({name:b.dataset.name,cat:b.dataset.cat,balance:'',rate:LIAB_RATE[b.dataset.cat]||5,monthly:Number(b.dataset.monthly)});saveNetworth();renderNetworth();});
  document.querySelectorAll('.nwf').forEach(el=>el.onchange=()=>{const lst=el.dataset.l,i=+el.dataset.i,f=el.dataset.f;let v=el.value;
    if(['value','rate','balance','monthly'].includes(f))v=v===''?'':parseFloat((''+v).replace(/[^0-9.,\-]/g,'').replace(',','.'));
    networth[lst][i][f]=v;saveNetworth();renderNetworth();});
