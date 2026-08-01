@@ -592,6 +592,21 @@ function nwDebtSuggestions(){
  const have=new Set((networth.liabilities||[]).map(x=>(x.name||'').toLowerCase()));
  return out.filter(s=>!have.has(s.name.toLowerCase())).sort((a,b)=>b.monthly-a.monthly);
 }
+function nwAssetSuggestions(){
+ const norm=d=>d.toLowerCase().replace(/\s*\S*\d\S*$/,'').replace(/[^a-zæøå ]/g,'').trim();
+ const invRe=/nordnet|pareto|aksjesparing|aksjekapital|\bfond\b|kron\b|firi|coinbase|bob invest|hyrbart|obligasjon/;
+ const savRe=/sparekonto|sm(å|aa)sparing|spareavtale|bufferkonto/;
+ const g={};
+ TX.filter(t=>t.type==='Utgift'&&(t.baseCat==='Sparing/investering'||invRe.test(t.description.toLowerCase())||savRe.test(t.description.toLowerCase()))).forEach(t=>{
+   const k=norm(t.description)||t.description.toLowerCase();
+   (g[k]=g[k]||{name:t.description,months:new Set(),tot:0}); g[k].months.add(t.month); g[k].tot+=-t.amount;});
+ const out=[];
+ for(const k in g){const v=g[k];if(v.months.size>=3&&v.tot>=1000){const d=v.name.toLowerCase();
+   const cat=savRe.test(d)?'Sparekonto':'Aksjer/fond';
+   out.push({name:v.name,cat});}}
+ const have=new Set((networth.assets||[]).map(x=>(x.name||'').toLowerCase()));
+ return out.filter(s=>!have.has(s.name.toLowerCase()));
+}
 function renderNetworth(){
  const A=networth.assets||[],L=networth.liabilities||[];
  const sumA=A.reduce((s,x)=>s+(+x.value||0),0),sumL=L.reduce((s,x)=>s+(+x.balance||0),0),net=sumA-sumL,ms=nwMonthlySavings();
@@ -603,6 +618,9 @@ function renderNetworth(){
     <input class="txt nwf" data-l="assets" data-i="${i}" data-f="value" value="${esc(x.value??'')}" placeholder="Verdi" inputmode="numeric">
     <input class="txt nwf" data-l="assets" data-i="${i}" data-f="rate" value="${esc(x.rate??'')}" placeholder="%/år" inputmode="numeric" title="Årlig verdiendring i %">
     <b class="nwdel" data-l="assets" data-i="${i}" title="Fjern" style="cursor:pointer;color:#ff8a80">✕</b></div>`).join(''):'<div class="sub">Ingen eiendeler lagt inn ennå.</div>';
+ const asugg=nwAssetSuggestions();
+ if(asugg.length)document.getElementById('assetList').innerHTML+=`<div class="sub" style="margin:12px 0 4px">Foreslått fra bankdataene – trykk for å legge til (fyll inn verdi etterpå):</div>`
+   +asugg.map(s=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px"><div><b>${esc(s.name)}</b> <span class="pill">${s.cat}</span></div><button class="clr nwadd" data-kind="assets" data-name="${esc(s.name)}" data-cat="${s.cat}">+ Legg til</button></div>`).join('');
  const lopts=c=>LIAB_CATS.map(o=>`<option ${o===c?'selected':''}>${o}</option>`).join('');
  document.getElementById('liabList').innerHTML=L.length?L.map((x,i)=>`<div style="display:grid;grid-template-columns:1fr 96px 92px 56px 66px 18px;gap:6px;align-items:center;margin-bottom:6px">
     <input class="txt nwf" data-l="liabilities" data-i="${i}" data-f="name" value="${esc(x.name||'')}" placeholder="Navn">
@@ -613,8 +631,11 @@ function renderNetworth(){
     <b class="nwdel" data-l="liabilities" data-i="${i}" title="Fjern" style="cursor:pointer;color:#ff8a80">✕</b></div>`).join(''):'<div class="sub">Ingen gjeld lagt inn ennå.</div>';
  const sugg=nwDebtSuggestions();
  if(sugg.length)document.getElementById('liabList').innerHTML+=`<div class="sub" style="margin:12px 0 4px">Foreslått fra bankdataene – trykk for å legge til (fyll inn saldo/rente etterpå):</div>`
-   +sugg.map(s=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px"><div><b>${esc(s.name)}</b> <span class="pill">${s.cat}</span> <span class="sub">~${NOK(s.monthly)}/mnd</span></div><button class="clr nwadd" data-name="${esc(s.name)}" data-cat="${s.cat}" data-monthly="${s.monthly}">+ Legg til</button></div>`).join('');
- document.querySelectorAll('.nwadd').forEach(b=>b.onclick=()=>{networth.liabilities.push({name:b.dataset.name,cat:b.dataset.cat,balance:'',rate:LIAB_RATE[b.dataset.cat]||5,monthly:Number(b.dataset.monthly)});saveNetworth();renderNetworth();});
+   +sugg.map(s=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px"><div><b>${esc(s.name)}</b> <span class="pill">${s.cat}</span> <span class="sub">~${NOK(s.monthly)}/mnd</span></div><button class="clr nwadd" data-kind="liabilities" data-name="${esc(s.name)}" data-cat="${s.cat}" data-monthly="${s.monthly}">+ Legg til</button></div>`).join('');
+ document.querySelectorAll('.nwadd').forEach(b=>b.onclick=()=>{
+   if(b.dataset.kind==='assets')networth.assets.push({name:b.dataset.name,cat:b.dataset.cat,value:'',rate:ASSET_CATS[b.dataset.cat]??0});
+   else networth.liabilities.push({name:b.dataset.name,cat:b.dataset.cat,balance:'',rate:LIAB_RATE[b.dataset.cat]||5,monthly:Number(b.dataset.monthly||0)});
+   saveNetworth();renderNetworth();});
  document.querySelectorAll('.nwf').forEach(el=>el.onchange=()=>{const lst=el.dataset.l,i=+el.dataset.i,f=el.dataset.f;let v=el.value;
    if(['value','rate','balance','monthly'].includes(f))v=v===''?'':parseFloat((''+v).replace(/[^0-9.,\-]/g,'').replace(',','.'));
    networth[lst][i][f]=v;saveNetworth();renderNetworth();});
