@@ -582,14 +582,17 @@ function nwDebtSuggestions(){
  const norm=d=>d.toLowerCase().replace(/\s*\S*\d\S*$/,'').replace(/[^a-zæøå ]/g,'').trim();
  const debtRe=/santander|svea|instabank|bank ?norwegian|l(å|a)nekassen|studiel(å|a)n|boligl(å|a)n|bill(å|a)n|kreditt|\bl(å|a)n\b/;
  const g={};
- TX.filter(t=>t.type==='Utgift'&&(t.baseCat==='Lån & kreditt'||debtRe.test(t.description.toLowerCase())||/^til:?\s*325083/.test(t.description.toLowerCase()))).forEach(t=>{
+ TX.filter(t=>{const d=t.description.toLowerCase();return t.type==='Utgift'&&(eff(t)==='Lån & kreditt'||debtRe.test(d)||/^til[:\s]/.test(d));}).forEach(t=>{
    const k=norm(t.description)||t.description.toLowerCase();
    (g[k]=g[k]||{name:t.description,months:new Set(),amts:[]});g[k].months.add(t.month);g[k].amts.push(-t.amount);});
  const out=[];
  for(const k in g){const v=g[k];if(v.months.size>=3){const arr=v.amts.slice().sort((a,b)=>a-b);const med=arr[Math.floor(arr.length/2)];if(med<200)continue;
-   const d=v.name.toLowerCase();let cat='Forbrukslån';
-   if(/l(å|a)nekassen|studiel(å|a)n/.test(d))cat='Studielån';else if(/santander|bil/.test(d))cat='Billån';else if(/^til:?\s*325083|boligl(å|a)n/.test(d)||med>10000)cat='Boliglån';
-   out.push({name:v.name,monthly:Math.round(med),cat});}}
+   const d=v.name.toLowerCase();const isTil=/^til[:\s]/.test(d);
+   if(isTil&&med<8000)continue;                         // kun store faste overføringer regnes som lån
+   let cat='Forbrukslån';
+   if(/l(å|a)nekassen|studiel(å|a)n/.test(d))cat='Studielån';else if(/santander|bil/.test(d))cat='Billån';else if(isTil||med>10000||/boligl(å|a)n/.test(d))cat='Boliglån';
+   const name=(isTil&&cat==='Boliglån')?'Boliglån':v.name;  // penere navn for fast boliglånstrekk
+   out.push({name,monthly:Math.round(med),cat});}}
  const have=new Set((networth.liabilities||[]).map(x=>(x.name||'').toLowerCase()));
  const dis=new Set((networth.dismissed||[]).map(x=>(x||'').toLowerCase()));
  return out.filter(s=>!have.has(s.name.toLowerCase())&&!dis.has(s.name.toLowerCase())).sort((a,b)=>b.monthly-a.monthly);
